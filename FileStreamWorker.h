@@ -27,6 +27,7 @@ enum FileStreamType
 	FSTREAM_TYPE_TIF = 1 << 1,
 	FSTREAM_TYPE_NPY = 1 << 2,
 	FSTREAM_TYPE_MAT = 1 << 3,
+	FSTREAM_TYPE_RAW = 1 << 4
 };
 
 DEFINE_ENUM_FLAG_OPERATORS(FileStreamType);
@@ -38,13 +39,48 @@ struct FileStreamMessage
 	int fsize;
 	FileStreamType ftype;
 	CircAcqBuffer<fftwf_complex>* circacqbuffer;
-	int aline_size;
+	int aline_size;  // Number of voxels in each A-line (ROI size)
 	int number_of_alines;
-	int roi_size;  // Number of voxels in each A-line
 	int n_to_stream;  // Number of frames to save for numbered stream
 };
 
 typedef spsc_bounded_queue_t<FileStreamMessage> FstreamQueue;
+
+// Writers for various file types
+// TODO write NPY, TIFF, MAT
+
+class Writer
+{
+public:
+	virtual void open(const char* name) {}
+	virtual void writeFrame(void* f, int frame_size) {}
+	virtual void close() {}
+};
+
+
+class RawWriter : public Writer
+{
+private:
+	std::ofstream fout;
+
+public:
+
+	void open(const char* name)
+	{
+		fout = std::ofstream(name, std::ios::out | std::ios::binary);
+	}
+	void writeFrame(void* f, int frame_size) override
+	{
+		fout.write((char*)f, frame_size);
+	}
+
+	void close() override
+	{
+		fout.close();
+	}
+
+};
+
 
 class FileStreamWorker final
 {
@@ -60,17 +96,19 @@ protected:
 	std::atomic_bool main_running;
 	std::atomic_bool streaming;
 
-	int frames_in_current_file;
-
 	const char* file_name;
+
 	int file_name_inc;
-	int file_max_bytes;
+	int frames_in_current_file;
+	int frames_per_file;
+
 	FileStreamType file_type;
 	CircAcqBuffer<fftwf_complex>* acq_buffer;
+	int latest_frame_n;
 
 	int aline_size;
 	int number_of_alines;
-	int roi_size;
+	int file_max_bytes;
 	int n_to_stream;
 
 	inline void recv_msg()
@@ -86,17 +124,19 @@ protected:
 	
 					acq_buffer = msg.circacqbuffer;
 					
-					n_to_stream = -1;
+					n_to_stream = -1; // If -1, indefinite stream
 
 					file_name = msg.fname;
-					file_name_inc = 0;
 					file_type = msg.ftype;
 
 					aline_size = msg.aline_size;
 					number_of_alines = msg.number_of_alines;
-					roi_size = msg.roi_size;
+					file_max_bytes = msg.fsize;
 
-					printf("Continuous save to file(s) %s...\n", file_name);
+					file_name_inc = 0;
+					frames_per_file = file_max_bytes / (aline_size * number_of_alines * (int)sizeof(fftwf_complex));
+
+					latest_frame_n = acq_buffer->get_count();
 
 				}
 			}
@@ -124,30 +164,37 @@ protected:
 		printf("FileStreamWorker main() running...\n");
 
 		bool fopen = false;
-		int n_wanted = 0;
 		int n_got;
 		fftwf_complex* f;
 
-		std::ofstream fout;
+		// TODO various types
+		RawWriter file;
+		const char* suffix = ".RAW";
 
 		while (main_running.load() == true)
 		{
 			this->recv_msg();
 			if (streaming.load())
 			{
-				n_got = acq_buffer->lock_out_wait(n_wanted, &f);
+				n_got = acq_buffer->lock_out_wait(latest_frame_n, &f);
 
-				if (n_wanted == n_got)
+				if (latest_frame_n == n_got)
 				{
-					n_wanted += 1;
+					latest_frame_n += 1;
 
 					if (!fopen)
 					{
 						// Open file
-						char fname[512];
-						sprintf(fname, "%s", file_name);  // TODO increment for large files
-						printf("Opened file %s\n", fname);
-						fout = std::ofstream(fname, std::ios::out | std::ios::binary);
+						char fname[MAX_PATH];
+						if (file_name_inc == 0)
+						{
+							sprintf(fname, "%s%s", file_name, suffix);
+						}
+						else
+						{
+							sprintf(fname, "%s_%i%s", file_name, file_name_inc, suffix);
+						}
+						file.open(fname);
 						frames_in_current_file = 0;
 						fopen = true;
 					}
@@ -156,38 +203,48 @@ protected:
 						if (n_to_stream == -1)  // Indefinite stream
 						{
 							// Append to file
-							fout.write((char*)f, number_of_alines * roi_size * sizeof(fftwf_complex));
+							file.writeFrame((void*)f, number_of_alines * aline_size * sizeof(fftwf_complex));
 							frames_in_current_file += 1;
 						}
-						else if (n_to_stream - frames_in_current_file > 0)  // Streaming n
+						else if (frames_in_current_file < n_to_stream)  // Streaming n
 						{
-							fout.write((char*)f, number_of_alines * roi_size * sizeof(fftwf_complex));
+							file.writeFrame((void*)f, number_of_alines * aline_size * sizeof(fftwf_complex));
 							frames_in_current_file += 1;
 						}
 						else
 						{
 							// Close file, stop streaming
-							printf("Closing file %s\n", file_name);
-							fout.close();
+							printf("Closing file %s after saving %i frames\n", file_name, frames_in_current_file);
+							file.close();
 							fopen = false;
+							streaming.store(false);
+						}
+						if (frames_in_current_file == frames_per_file)  // If this file cannot get larger, need to start a new one
+						{
+							file_name_inc += 1;
+							if (fopen)
+							{
+								printf("Closing file %s after saving %i frames\n", file_name, frames_in_current_file);
+								file.close();
+								fopen = false;
+							}
 						}
 					}
-
 				}
 				else  // Dropped frame, since we have fallen behind, get the latest next time
 				{
-					printf("Dropped frame!\n");
-					n_wanted = acq_buffer->get_count();
+					latest_frame_n = acq_buffer->get_count();
+					printf("Dropped frame %i, got %i\n", latest_frame_n, n_got);
 				}
 				acq_buffer->release();
 			}
 			else
 			{
-				if (fopen)
+				if (fopen)  // The stream has been stopped by stopStream
 				{
 					// Close file
-					printf("Closing file %s\n", file_name);
-					fout.close();
+					printf("Closing file %s after saving %i frames\n", file_name, frames_in_current_file);
+					file.close();
 					fopen = false;
 				}
 			}
@@ -198,7 +255,7 @@ public:
 
 	FileStreamWorker()
 	{
-		msg_queue = new FstreamQueue(65536);
+		msg_queue = new FstreamQueue(0);
 		main_running = ATOMIC_VAR_INIT(false);
 		streaming = ATOMIC_VAR_INIT(false);
 	}
@@ -222,7 +279,7 @@ public:
 		return streaming.load();
 	}
 
-	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines, int roi_size)
+	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines)
 	{
 		FileStreamMessage msg;
 		msg.flag = StartStream;
@@ -231,11 +288,10 @@ public:
 		msg.circacqbuffer = buffer;
 		msg.aline_size = aline_size;
 		msg.number_of_alines = number_of_alines;
-		msg.roi_size = roi_size;
 		msg_queue->enqueue(msg);
 	}
 
-	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines, int roi_size, int n_to_stream)
+	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines, int n_to_stream)
 	{
 		FileStreamMessage msg;
 		msg.flag = StartStream | StreamN;
@@ -244,7 +300,6 @@ public:
 		msg.circacqbuffer = buffer;
 		msg.aline_size = aline_size;
 		msg.number_of_alines = number_of_alines;
-		msg.roi_size = roi_size;
 		msg.n_to_stream = n_to_stream;
 		msg_queue->enqueue(msg);
 	}

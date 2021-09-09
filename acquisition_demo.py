@@ -71,17 +71,19 @@ print('Scan started!')
 #     time.sleep(1 / pattern.get_pattern_rate())
 
 
-FILENAME = r'D:\realtimeoct_acq\imaging_test.RAW'
+FILENAME = r'D:\realtimeoct_acq\continuous_imaging_test'
 ACQ_N = 10
-controller.start_save(FILENAME, 100000)
 
-time.sleep(6)
+# controller.save_n(FILENAME, 2E9, ACQ_N)
+controller.start_save(FILENAME, 2E9)
+
+time.sleep(10)
 
 controller.stop_save()
 
 controller.stop_scan()
 
-z = np.fromfile(FILENAME, dtype=np.complex64)
+z = np.fromfile(FILENAME + '.RAW', dtype=np.complex64)
 zlen = int(len(z) / (NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES * ROI_SIZE))
 
 print('Saved', zlen, 'frames')

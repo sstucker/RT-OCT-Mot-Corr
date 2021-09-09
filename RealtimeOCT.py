@@ -38,6 +38,7 @@ lib.RTOCT_setScan.argtypes = (ControllerHandle, c_double_p, c_double_p, c_double
 lib.RTOCT_startScan.argtypes = [ControllerHandle]
 lib.RTOCT_stopScan.argtypes = [ControllerHandle]
 lib.RTOCT_startSave.argtypes = (ControllerHandle, c.c_char_p, c.c_int)
+lib.RTOCT_saveN.argtypes = (ControllerHandle, c.c_char_p, c.c_int, c.c_int)
 lib.RTOCT_stopSave.argtypes = [ControllerHandle]
 lib.RTOCT_grabFrame.argtypes = [ControllerHandle, c_complex64_p]
 lib.RTOCT_grabFrame.restype = c.c_int
@@ -142,7 +143,7 @@ class RealtimeOCTController:
         file_name -- string. Desired name of output file
         max_bytes -- int. Maximum size each file can be before a new one is created
         """
-        lib.RTOCT_startSave(self._handle, file_name.encode('utf-8'), int(max_bytes))
+        lib.RTOCT_startSave(self._handle, file_name.split('.')[0].encode('utf-8'), int(max_bytes))
 
     def save_n(self, file_name, max_bytes, frames_to_save):
         """
@@ -151,7 +152,7 @@ class RealtimeOCTController:
         max_bytes -- int. Maximum size each file can be before a new one is created
         frames_to_save -- int. Number of frames to save
         """
-        lib.RTOCT_saveNFrames(self._handle, file_name.encode('utf-8'), int(max_bytes), int(frames_to_save))
+        lib.RTOCT_saveN(self._handle, file_name.split('.')[0].encode('utf-8'), int(max_bytes), int(frames_to_save))
 
     def stop_save(self):
         lib.RTOCT_stopSave(self._handle)
@@ -183,4 +184,4 @@ class RealtimeOCTController:
         lib.RTOCT_grab_motion_frame(self._handle, out)
 
     def grab_motion_vector(self, out):
-        return lib.RTOCT_grab_motion_vector(self._handle, out)
+        return lib.RTOCT_grab_motion()
