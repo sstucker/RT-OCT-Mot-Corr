@@ -9,6 +9,7 @@ class PhaseCorrelationPlan3D
 {
 
 	protected:
+
 		int* dims;
         int* og_dims;
 		int fsize;
@@ -30,7 +31,8 @@ class PhaseCorrelationPlan3D
         int* px_dx_lut;  // LUT to convert from FFT pixels to pixel displacements for a square ROI
         int pc_roi;  // The offset into the top of the A-scan from which to crop the bwidth x bwidth ROI
 
-        float* apod_window; // Pixmap of attenuation values multiplied by the 2D spatial images prior to forward FFT 
+        float* spectral_filter;
+        float* spatial_filter; // Pixmap of attenuation values multiplied by the 2D spatial images prior to forward FFT 
 
         // 32 bit 2D fft plans for phase correlation
         fftwf_plan pc_roi_fft_plan;
@@ -68,11 +70,12 @@ class PhaseCorrelationPlan3D
         float dot_thresh;
         float var_b;
 
+        bool bidirectional;
+
         template <class T>
         inline T* indexBuffer(T* buf, int i, int j, int k)
         {
-            // printf("Indexing at [%i][%i][%i] -> %i\n", i, j, k, k + dims[2] * j + dims[2] * dims[1] * i);
-            return buf + (i + dims[1] * (j + dims[2] * k));
+            return buf + (k + dims[2] * (j + dims[1] * i));
         }
 
         inline void applyWindow(fftwf_complex* img, float* window)
@@ -104,11 +107,21 @@ class PhaseCorrelationPlan3D
                 {
                     for (int k = 0; k < og_dims[2]; k++)
                     {
+                        int j_idx;
+                        if ((bidirectional) && (j % 2 == 0))
+                        {
+                            j_idx = og_dims[0] - (j + 1);
+                            // printf("Bidirectional copy from %i -> %i\n", j_idx, (dims[1] - og_dims[1]) / 2 + j);
+                        }
+                        else
+                        {
+                            j_idx = j;
+                        }
                         int dst_i = (dims[0] - og_dims[0]) / 2 + i;
                         int dst_j = (dims[1] - og_dims[1]) / 2 + j;
                         int dst_k = (dims[2] - og_dims[2]) / 2 + k;
                         // TODO memcpy last axis contiguously
-                        memcpy(indexBuffer<fftwf_complex>(dst, dst_i, dst_j, dst_k), src + (i + og_dims[1] * (j + og_dims[2] * k)), sizeof(fftwf_complex));
+                        memcpy(indexBuffer<fftwf_complex>(dst, dst_i, dst_j, dst_k), src + (k + og_dims[2] * (j_idx + og_dims[1] * i)), sizeof(fftwf_complex));
                     }
                 }
             }
@@ -127,12 +140,6 @@ class PhaseCorrelationPlan3D
                         memcpy(&i_tn, indexBuffer<fftwf_complex>(tn, i, j, k), sizeof(fftwf_complex));
                         memcpy(&i_t0, indexBuffer<fftwf_complex>(t0, i, j, k), sizeof(fftwf_complex));
 
-                        // printf("tn[%i][%i][%i] = %f + %fi\n", i, j, k, *(indexBuffer<fftwf_complex>(tn, i, j, k))[0], *(indexBuffer<fftwf_complex>(tn, i, j, k))[1]);
-                        // printf("t0[%i][%i][%i] = %f + %fi\n", i, j, k, *(indexBuffer<fftwf_complex>(t0, i, j, k))[0], *(indexBuffer<fftwf_complex>(t0, i, j, k))[1]);
-
-                        // printf("tn[%i][%i][%i] = %f + %fi\n", i, j, k, std::real(i_tn), std::imag(i_tn));
-                        // printf("t0[%i][%i][%i] = %f + %fi\n", i, j, k, std::real(i_t0), std::imag(i_t0));
-
                         // Correlation
                         pc = i_t0 * std::conj(i_tn);
 
@@ -145,6 +152,10 @@ class PhaseCorrelationPlan3D
                         {
                             pcnorm = pc / std::abs(pc);
                         }
+
+                        // Filter the spectral correlogram
+                        pcnorm *= *indexBuffer<float>(spectral_filter, i, j, k);
+
                         // Copy phase corr result to R array
                         memcpy(indexBuffer<fftwf_complex>(r, i, j, k), &pcnorm, sizeof(fftwf_complex));
                     }
@@ -229,7 +240,7 @@ class PhaseCorrelationPlan3D
             memcpy(dst + 0, &maxval, sizeof(double));
             memcpy(dst + 0, &dx, sizeof(double));
             memcpy(dst + 1, &dy, sizeof(double));
-            memcpy(dst + 2, &dy, sizeof(double));
+            memcpy(dst + 2, &dz, sizeof(double));
 
         }
 
@@ -238,13 +249,17 @@ class PhaseCorrelationPlan3D
 
 		PhaseCorrelationPlan3D()
         {
+            fsize = 0;
             reference_acquired = false;
         }
 
-        PhaseCorrelationPlan3D(int* input_dims, int upsample, int npeak_centroid, float* window)
+        PhaseCorrelationPlan3D(int* input_dims, int upsample, int npeak_centroid, float* spectral_filter_3d, float* spatial_filter_3d, bool bidirectional)
         {
 
             reference_acquired = false;
+
+            this->bidirectional = bidirectional;
+            printf("Value of bidirectional is %i\n", this->bidirectional);
 
             npeak = npeak_centroid;
             upsample_factor = upsample;
@@ -266,9 +281,12 @@ class PhaseCorrelationPlan3D
             printf("Planning 3D phase correlation:\n");
             printf("Upsampling [%i, %i, %i] -> [%i, %i, %i]\n", og_dims[0], og_dims[1], og_dims[2], dims[0], dims[1], dims[2]);
             printf("Allocating buffers of size %i\n", fsize);
-            apod_window = new float[fsize];
-            memset(apod_window, 1.0, fsize * sizeof(float));
-            memcpy(apod_window, window, fsize * sizeof(float));
+            spatial_filter = new float[fsize];
+            spectral_filter = new float[fsize];
+            // memset(spatial_filter, 1.0, fsize * sizeof(float));
+            // memset(spatial_filter, 1.0, fsize * sizeof(float));
+            memcpy(spatial_filter, spatial_filter_3d, fsize * sizeof(float));
+            memcpy(spectral_filter, spectral_filter_3d, fsize * sizeof(float));
 
             t0 = fftwf_alloc_complex(fsize);
             tn = fftwf_alloc_complex(fsize);
@@ -300,34 +318,44 @@ class PhaseCorrelationPlan3D
                     idx++;
                 }
             }
-
-            
-            printf("fftshift matrix for upsample factor %i:\n", upsample_factor);
-            for (int i = 0; i < dims[0]; i++)
-            {
-                printf("%f ", fftshift[0][i]);
-            }
-            printf("\n");
-            
         }
 
+        void setSpectralFilter(float* new_spectral_filter)
+        {
+            memcpy(spectral_filter, new_spectral_filter, fsize * sizeof(float));
+        }
+
+        void setSpatialFilter(float* new_spatial_filter)
+        {
+            memcpy(spatial_filter, new_spatial_filter, fsize * sizeof(float));
+        }
+
+        void setCentroidN(int n)
+        {
+            this->npeak = n;
+        }
+
+        void setBidirectional(bool is_bidirectional)
+        {
+            this->bidirectional = is_bidirectional;
+        }
 
         void setReference(fftwf_complex* t0_new)
         {
             populateZeroPaddedBuffer(t0, t0_new);
             reference_acquired = true;
-            applyWindow(t0, apod_window);  // Multiply buffer by apod window prior to FFT
+            applyWindow(t0, spatial_filter);  // Multiply buffer by apod window prior to FFT
             fftwf_execute_dft(pc_roi_fft_plan, t0, t0);  // Execute in place FFT
-            // TODO consider filtering the spectrum
             printf("Got new reference frame.\n");
+            fflush(stdout);
         }
 
         void getDisplacement(fftwf_complex* frame, double* output)
         {
-            if (reference_acquired)
+            if (reference_acquired) // Can only get displacement if a reference frame has been acquired
             {
                 populateZeroPaddedBuffer(tn, frame);
-                applyWindow(tn, apod_window);  // Multiply buffer by apod window prior to FFT
+                applyWindow(tn, spatial_filter);  // Multiply buffer by apod window prior to FFT
                 fftwf_execute_dft(pc_roi_fft_plan, tn, tn);  // Execute in place FFT
                 phaseCorr(output);
             }
@@ -337,9 +365,21 @@ class PhaseCorrelationPlan3D
             }
         }
 
+        int get_frame_size()
+        {
+            return fsize;
+        }
+
+        // Return pointers to the buffers for display/debug
+
         fftwf_complex* get_R()
         {
             return R;
+        }
+
+        fftwf_complex* get_r()
+        {
+            return r;
         }
 
         fftwf_complex* get_tn()
@@ -356,7 +396,7 @@ class PhaseCorrelationPlan3D
 		{
             // delete[] dims;
             // delete[] og_dims;
-            // delete[] apod_window;
+            // delete[] spatial_filter;
 		}
 
 

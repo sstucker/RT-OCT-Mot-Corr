@@ -16,6 +16,9 @@
 #include <vector>
 #include <ctime>
 #include <Windows.h>
+#include <condition_variable>
+#include <mutex>
+
 
 enum ControllerMessageFlag
 {
@@ -179,8 +182,6 @@ protected:
 		{
 			if (msg.flag & UpdateScan)
 			{
-				printf("Received UpdateScan\n");
-				
 				if (config_ready.load())
 				{
 					scan_ready.store(false);
@@ -197,8 +198,6 @@ protected:
 			}
 			if (msg.flag & UpdateProcessing)
 			{
-				printf("Received UpdateProcessing\n");
-
 				if (!file_stream_worker->is_streaming() && config_ready.load())
 				{
 					processing_ready.store(false);
@@ -216,8 +215,6 @@ protected:
 			}
 			if (msg.flag & ConfigureController)
 			{
-				printf("Received Configure\n");
-
 				if (!acquiring.load())
 				{
 
@@ -263,8 +260,6 @@ protected:
 						output_buffer = new CircAcqBuffer<fftwf_complex>(msg.number_of_buffers, roi_size * total_number_of_alines);
 						stamp_buffer = new uint16_t[total_number_of_alines];
 
-						printf("CircAcqBuffer created.\n");
-
 						plan_fftw();
 
 						config_ready.store(true);
@@ -282,7 +277,7 @@ protected:
 			}
 			if (msg.flag & StartScan)
 			{
-				printf("Received Start\n");
+				printf("Received Start Msg\n");
 				
 				if (config_ready.load() && processing_ready.load() && scan_ready.load())
 				{
@@ -354,6 +349,7 @@ protected:
 				acquired_buffer_number = hardware_interface->examine_imaq_buffer(&raw_frame_addr, cumulative_frame_number);
 				if (raw_frame_addr != NULL)
 				{					    
+					// printf("Acq buf num %i\n", acquired_buffer_number);
 					output_addr = output_buffer->lock_out_head();
 
 					// Dispatch jobs to workers
@@ -431,6 +427,16 @@ public:
 		// TODO initialize properties
 	}
 
+	bool is_scanning()
+	{
+		return acquiring.load();
+	}
+
+	bool is_ready_to_scan()
+	{
+		return config_ready.load() && processing_ready.load() && scan_ready.load();
+	}
+
 	// Starts all threads
 	void open(const char* cam_name, const char* aoScanX, const char* aoScanY, const char* aoLineTrigger, const char* aoFrameTrigger)
 	{
@@ -451,7 +457,7 @@ public:
 
 			msg_queue = new MessageQueue(65536);
 			oct_controller_thread = std::thread(&RealtimeOCTController::main, this);
-			file_stream_worker = new FileStreamWorker();  // If no argument is passed, thread does not start
+			file_stream_worker = new FileStreamWorker(0);  // If no argument is passed, thread does not start
 			motion_worker = new MotionWorker(0);
 			main_running.store(true);
 		}
@@ -532,27 +538,19 @@ public:
 			}
 			else
 			{
-				printf("Cannot grab frame: no frames acquired yet!\n");
 				return -1;
 			}
 		}
 		else
 		{
-			printf("Cannot grab frame: no acquisition in progress!\n");
 			return -1;
 		}
 	}
 
 	void start_save(const char* fname, int max_bytes)
 	{
-		if (acquiring.load())
-		{
-			file_stream_worker->start_streaming(fname, max_bytes, FSTREAM_TYPE_NPY, output_buffer, spatial_aline_size, total_number_of_alines, roi_offset, roi_size);
-		}
-		else
-		{
-			printf("Can't start streaming, not scanning!\n");
-		}
+		// while (!acquiring.load())
+		file_stream_worker->start_streaming(fname, max_bytes, FSTREAM_TYPE_NPY, output_buffer, spatial_aline_size, total_number_of_alines, roi_size);
 	}
 
 	void stop_save()
@@ -564,15 +562,16 @@ public:
 	{
 		if (acquiring.load())
 		{
-			file_stream_worker->start_streaming(fname, max_bytes, FSTREAM_TYPE_NPY, output_buffer, spatial_aline_size, total_number_of_alines, roi_offset, roi_size, n_to_save);
+			file_stream_worker->start_streaming(fname, max_bytes, FSTREAM_TYPE_NPY, output_buffer, spatial_aline_size, total_number_of_alines, roi_size, n_to_save);
 		}
 	}
 
 	// -- MOTION QUANT ---------------------
 
-	void start_motion_output(int* input_dims, int upsample_factor, int centroid_n_peak, float* window)
+	void start_motion_output(int* input_dims, double* scale_xyz, int upsample_factor, int centroid_n_peak, float* spectral_filter, float* spatial_filter, bool bidirectional,
+		                     double* filter_d, double* filter_g, double* filter_q, double* filter_r)
 	{
-		motion_worker->start(spatial_aline_size, output_buffer, upsample_factor, input_dims, centroid_n_peak, window);
+		motion_worker->start(spatial_aline_size, output_buffer, upsample_factor, input_dims, scale_xyz, centroid_n_peak, spectral_filter, spatial_filter, bidirectional, filter_d, filter_g, filter_q, filter_r);
 	}
 
 	void stop_motion_output()
@@ -585,6 +584,11 @@ public:
 		motion_worker->updateReference();
 	}
 
+	void update_motion_parameters(double* scale_xyz, int centroid_n_peak, float* spectral_filter, float* spatial_filter, bool bidirectional, double* filter_d, double* filter_g, double* filter_q, double* filter_r)
+	{
+		motion_worker->updateParameters(scale_xyz, centroid_n_peak, spectral_filter, spatial_filter, bidirectional, filter_d, filter_g, filter_q, filter_r);
+	}
+
 	void grab_motion_correlogram(fftwf_complex* out)
 	{
 		motion_worker->grabCorrelogram(out);
@@ -595,7 +599,7 @@ public:
 		motion_worker->grabFrame(out);
 	}
 
-	bool grab_motion_vector(double* out)
+	int grab_motion_vector(double* out)
 	{
 		return motion_worker->grabMotionVector(out);
 	}
@@ -613,11 +617,13 @@ public:
 	{
 		printf("RealtimeOCTController destructor invoked\n");
 		delete file_stream_worker;
+		/*
 		for (int i = 0; i < n_process_workers; i++)
 		{
 			delete processing_worker_pool[i];
 		}
 		delete[] processing_worker_pool;
+		*/
 	}
 
 };

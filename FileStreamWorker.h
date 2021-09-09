@@ -10,10 +10,8 @@
 #include "CircAcqBuffer.h"
 #include "WavenumberInterpolationPlan.h"
 #include "Utils.h"
-#include <opencv2/core.hpp>
-#include <opencv2/opencv.hpp>
-#include <tinytiffreader.h>
 #include <Windows.h>
+#include <fstream>
 
 enum FileStreamMessageFlag
 {
@@ -42,8 +40,7 @@ struct FileStreamMessage
 	CircAcqBuffer<fftwf_complex>* circacqbuffer;
 	int aline_size;
 	int number_of_alines;
-	int roi_offset;  // Offset of saved data from index 0 of each A-line
-	int roi_size;  // Number of voxels saved of each A-line proceeding from offset
+	int roi_size;  // Number of voxels in each A-line
 	int n_to_stream;  // Number of frames to save for numbered stream
 };
 
@@ -73,11 +70,8 @@ protected:
 
 	int aline_size;
 	int number_of_alines;
-	int frame_size;
-	int frame_offset;
+	int roi_size;
 	int n_to_stream;
-
-	// TinyTIFFWriterFile* tif;
 
 	inline void recv_msg()
 	{
@@ -100,14 +94,15 @@ protected:
 
 					aline_size = msg.aline_size;
 					number_of_alines = msg.number_of_alines;
-					frame_size = msg.roi_size;
-					frame_offset = msg.roi_offset;
+					roi_size = msg.roi_size;
+
+					printf("Continuous save to file(s) %s...\n", file_name);
 
 				}
 			}
 			if (msg.flag & StreamN)
 			{
-				printf("Numbered save: streaming %i frames to disk.\n", msg.n_to_stream);
+				printf("Numbered save: streaming %i frames to file %s.\n", msg.n_to_stream, file_name);
 				n_to_stream = msg.n_to_stream;
 			}
 			if (msg.flag & StopStream)
@@ -133,6 +128,8 @@ protected:
 		int n_got;
 		fftwf_complex* f;
 
+		std::ofstream fout;
+
 		while (main_running.load() == true)
 		{
 			this->recv_msg();
@@ -143,28 +140,44 @@ protected:
 				if (n_wanted == n_got)
 				{
 					n_wanted += 1;
-				}
-				else  // Dropped frame, since we have fallen behind, get the latest next time
-				{
-					n_wanted = acq_buffer->get_count();
-				}
-				if (!fopen)
-				{
-					// Open file
-					frames_in_current_file = 0;
-					fopen = true;
-				}
-				else
-				{
-					if (n_to_stream - frames_in_current_file > 0)
+
+					if (!fopen)
 					{
-						// Append to file
-						frames_in_current_file += 1;
+						// Open file
+						char fname[512];
+						sprintf(fname, "%s", file_name);  // TODO increment for large files
+						printf("Opened file %s\n", fname);
+						fout = std::ofstream(fname, std::ios::out | std::ios::binary);
+						frames_in_current_file = 0;
+						fopen = true;
 					}
 					else
 					{
-						// Close file, stop streaming
+						if (n_to_stream == -1)  // Indefinite stream
+						{
+							// Append to file
+							fout.write((char*)f, number_of_alines * roi_size * sizeof(fftwf_complex));
+							frames_in_current_file += 1;
+						}
+						else if (n_to_stream - frames_in_current_file > 0)  // Streaming n
+						{
+							fout.write((char*)f, number_of_alines * roi_size * sizeof(fftwf_complex));
+							frames_in_current_file += 1;
+						}
+						else
+						{
+							// Close file, stop streaming
+							printf("Closing file %s\n", file_name);
+							fout.close();
+							fopen = false;
+						}
 					}
+
+				}
+				else  // Dropped frame, since we have fallen behind, get the latest next time
+				{
+					printf("Dropped frame!\n");
+					n_wanted = acq_buffer->get_count();
 				}
 				acq_buffer->release();
 			}
@@ -173,6 +186,9 @@ protected:
 				if (fopen)
 				{
 					// Close file
+					printf("Closing file %s\n", file_name);
+					fout.close();
+					fopen = false;
 				}
 			}
 		}
@@ -206,7 +222,7 @@ public:
 		return streaming.load();
 	}
 
-	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines, int roi_size, int roi_offset)
+	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines, int roi_size)
 	{
 		FileStreamMessage msg;
 		msg.flag = StartStream;
@@ -215,12 +231,11 @@ public:
 		msg.circacqbuffer = buffer;
 		msg.aline_size = aline_size;
 		msg.number_of_alines = number_of_alines;
-		msg.roi_offset = roi_offset;
 		msg.roi_size = roi_size;
 		msg_queue->enqueue(msg);
 	}
 
-	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines, int roi_size, int roi_offset, int n_to_stream)
+	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines, int roi_size, int n_to_stream)
 	{
 		FileStreamMessage msg;
 		msg.flag = StartStream | StreamN;
@@ -229,7 +244,6 @@ public:
 		msg.circacqbuffer = buffer;
 		msg.aline_size = aline_size;
 		msg.number_of_alines = number_of_alines;
-		msg.roi_offset = roi_offset;
 		msg.roi_size = roi_size;
 		msg.n_to_stream = n_to_stream;
 		msg_queue->enqueue(msg);

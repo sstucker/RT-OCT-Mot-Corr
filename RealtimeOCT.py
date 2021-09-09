@@ -16,7 +16,9 @@ c_uint32_p = ndpointer(dtype=np.uint32, ndim=1, flags='C_CONTIGUOUS')
 c_float_p = ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS')
 c_double_p = ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS')
 c_complex64_p = ndpointer(dtype=np.complex64, ndim=1, flags='C_CONTIGUOUS')
+
 ControllerHandle = c.POINTER(c.c_char)
+PlanHandle = c.POINTER(c.c_char)
 
 os.chdir(r"C:\Users\OCT\Dev\RealtimeOCT\x64\bin")
 LIB_PATH = r"C:\Users\OCT\Dev\RealtimeOCT\x64\bin\RealtimeOCT.dll"
@@ -25,6 +27,11 @@ lib = c.CDLL(LIB_PATH)
 
 lib.RTOCT_open.argtypes = (c.c_char_p, c.c_char_p, c.c_char_p, c.c_char_p, c.c_char_p)
 lib.RTOCT_open.restype = ControllerHandle
+lib.RTOCT_is_scanning.argtypes = [ControllerHandle]
+lib.RTOCT_is_scanning.restype = c.c_bool
+lib.RTOCT_is_ready_to_scan.argtypes = [ControllerHandle]
+lib.RTOCT_is_ready_to_scan.restype = c.c_bool
+
 lib.RTOCT_configure.argtypes = (ControllerHandle, c.c_int, c.c_int, c.c_int, c.c_int, c.c_int, c.c_int)
 lib.RTOCT_setProcessing.argtypes = (ControllerHandle, c.c_double, c_float_p)
 lib.RTOCT_setScan.argtypes = (ControllerHandle, c_double_p, c_double_p, c_double_p, c_double_p, c.c_int)
@@ -37,14 +44,30 @@ lib.RTOCT_grabFrame.restype = c.c_int
 lib.RTOCT_grabSpectrum.argtypes = [ControllerHandle, c_float_p]
 lib.RTOCT_close.argtypes = [ControllerHandle]
 
-lib.RTOCT_start_motion_output.argtypes = [ControllerHandle, c_int_p, c.c_int, c.c_int, c_float_p]
+# -- MOTION QUANT -------------------------------------
+
+lib.RTOCT_start_motion_output.argtypes = [ControllerHandle, c_int_p, c_double_p, c.c_int, c.c_int, c_float_p, c_float_p, c.c_bool, c_double_p, c_double_p, c_double_p, c_double_p]
 lib.RTOCT_stop_motion_output.argtypes = [ControllerHandle]
 lib.RTOCT_update_motion_reference.argtypes = [ControllerHandle]
 lib.RTOCT_grab_motion_correlogram.argtypes = [ControllerHandle, c_complex64_p]
 lib.RTOCT_grab_motion_frame.argtypes = [ControllerHandle, c_complex64_p]
+lib.RTOCT_update_motion_parameters.argtypes = [ControllerHandle, c_double_p, c.c_int, c_float_p, c_float_p, c.c_bool, c_double_p, c_double_p, c_double_p, c_double_p]
 
-lib.RTOCT_grab_motion_vector.restype = c.c_bool
+lib.RTOCT_grab_motion_vector.restype = c.c_int
 lib.RTOCT_grab_motion_vector.argtypes = [ControllerHandle, c_double_p]
+
+lib.PCPLAN3D_create.restype = PlanHandle
+
+
+lib.PCPLAN3D_close.argtypes = [PlanHandle]
+
+lib.PCPLAN3D_set_reference.argtypes = (PlanHandle, c_complex64_p)
+lib.PCPLAN3D_get_displacement.argtypes = (PlanHandle, c_complex64_p, c_double_p)
+
+lib.PCPLAN3D_get_r.argtypes = (PlanHandle, c_complex64_p)
+lib.PCPLAN3D_get_R.argtypes = (PlanHandle, c_complex64_p)
+lib.PCPLAN3D_get_t0.argtypes = (PlanHandle, c_complex64_p)
+lib.PCPLAN3D_get_tn.argtypes = (PlanHandle, c_complex64_p)
 
 
 class RealtimeOCTController:
@@ -82,6 +105,12 @@ class RealtimeOCTController:
             roi_size = aline_size
         lib.RTOCT_configure(self._handle, int(dac_output_rate), int(aline_size), int(roi_offset), int(roi_size),
                             int(number_of_alines), int(number_of_imaq_buffers))
+
+    def is_scanning(self):
+        return lib.RTOCT_is_scanning(self._handle)
+
+    def is_ready_to_scan(self):
+        return lib.RTOCT_is_ready_to_scan(self._handle)
 
     def set_processing(self, intpdk, apod_window):
         """
@@ -135,14 +164,17 @@ class RealtimeOCTController:
 
     # -- MOTION TRACKING ----------------------------------------------------------------------------------------
 
-    def start_motion_output(self, input_dims, upsampling_factor, npeak, window3d):
-        lib.RTOCT_start_motion_output(self._handle, input_dims, upsampling_factor, npeak, window3d)
+    def start_motion_output(self, input_dims, scale_xyz, upsampling_factor, npeak, spectral_window3d, spatial_window3d, filter_d, filter_g, filter_q, filter_r, bidirectional=False):
+        lib.RTOCT_start_motion_output(self._handle, input_dims, scale_xyz, upsampling_factor, npeak, spectral_window3d, spatial_window3d, bidirectional, filter_d, filter_g, filter_q, filter_r)
 
     def stop_motion_output(self):
         lib.RTOCT_stop_motion_output(self._handle)
 
     def update_motion_reference(self):
         lib.RTOCT_update_motion_reference(self._handle)
+
+    def update_motion_parameters(self, scale_xyz, npeak, spectral_window3d, spatial_window3d, filter_d, filter_g, filter_q, filter_r, bidirectional=False):
+        lib.RTOCT_update_motion_parameters(self._handle, scale_xyz, npeak, spectral_window3d, spatial_window3d, bidirectional, filter_d, filter_g, filter_q, filter_r)
 
     def grab_motion_correlogram(self, out):
         lib.RTOCT_grab_motion_correlogram(self._handle, out)
