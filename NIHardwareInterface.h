@@ -227,7 +227,7 @@ public:
 
     int open(const char* camera_name, const char* x_ch_name, const char* y_ch_name, const char* line_trig_ch_name, const char* frame_trig_ch_name, int dac_rate, int aline_size, int number_of_alines, int number_of_buffers)
     {
-        // printf("NIHardwareInterface opening with ch %s %s %s %s %s\n", camera_name, x_ch_name, y_ch_name, line_trig_ch_name, frame_trig_ch_name);
+        printf("NIHardwareInterface opening with ch %s %s %s %s %s\n", camera_name, x_ch_name, y_ch_name, line_trig_ch_name, frame_trig_ch_name);
         if (!opened)
         {
             err = open_imaq_interface(camera_name, aline_size, number_of_alines, number_of_buffers);

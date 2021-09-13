@@ -68,7 +68,7 @@ protected:
 	std::atomic_bool scan_ready;
 	std::atomic_bool acquiring;
 
-	NIHardwareInterface* hardware_interface;
+	NIHardwareInterface hardware_interface;
 	uint16_t* raw_frame_addr;
 
 	MessageQueue* msg_queue;
@@ -102,11 +102,11 @@ protected:
 	double* scan_y;
 	double* scan_line_trig;
 	double* scan_frame_trig;
-	const char* hw_cam_name;
-	const char* hw_ao_x;
-	const char* hw_ao_y;
-	const char* hw_ao_lt;
-	const char* hw_ao_ft;
+	char* hw_cam_name;
+	char* hw_ao_x;
+	char* hw_ao_y;
+	char* hw_ao_lt;
+	char* hw_ao_ft;
 	int roi_offset;
 	int roi_size;
 
@@ -186,7 +186,7 @@ protected:
 				{
 					scan_ready.store(false);
 
-					hardware_interface->set_scan_pattern(msg.scan_x, msg.scan_y, msg.scan_line_trig, msg.scan_frame_trig, msg.scan_n);
+					hardware_interface.set_scan_pattern(msg.scan_x, msg.scan_y, msg.scan_line_trig, msg.scan_frame_trig, msg.scan_n);
 
 					scan_ready.store(true);
 				}
@@ -210,7 +210,7 @@ protected:
 				}
 				else
 				{
-					printf("Cannot change OCT processing parameters while file streaming is active.\n");
+					printf("Could not update processing. Controller is not configured, or file streaming is taking place.\n");
 				}
 			}
 			if (msg.flag & ConfigureController)
@@ -226,9 +226,15 @@ protected:
 					roi_offset = msg.roi_offset;
 					roi_size = msg.roi_size;
 
-					// TODO figure out how to pass in strings properly!!!!
-					// As of now these are hardcoded for some reason
-					if (!hardware_interface->open("img1", "Dev1/ao1", "Dev1/ao2", "Dev1/ao0", "Dev1/ao3", msg.hw_dac_fs, aline_size, total_number_of_alines, msg.number_of_buffers))
+					printf("Opening RealtimeOCTController with following hardware channels:\n");
+					printf("Camera: %s\n", hw_cam_name);
+					printf("X galvo: %s\n", hw_ao_x);
+					printf("Y galvo: %s\n", hw_ao_y);
+					printf("Line camera trigger: %s\n", hw_ao_lt);
+					printf("Frame grab trigger: %s\n", hw_ao_ft);
+
+					if (!hardware_interface.open(hw_cam_name, hw_ao_x, hw_ao_y, hw_ao_lt, hw_ao_ft, msg.hw_dac_fs, aline_size, total_number_of_alines, msg.number_of_buffers))
+					// if (!hardware_interface.open("img1", "Dev1/ao1", "Dev1/ao2", "Dev1/ao0", "Dev1/ao3", msg.hw_dac_fs, aline_size, total_number_of_alines, msg.number_of_buffers))
 					{
 						// Determine number of workers based on A-lines per frame
 						if (total_number_of_alines > 4096)
@@ -284,7 +290,7 @@ protected:
 					
 					launch_workers();
 					
-					if (!hardware_interface->start_scan())
+					if (!hardware_interface.start_scan())
 					{
 						printf("Hardware started scanning successfully.\n");
 						acquiring.store(true);
@@ -304,7 +310,7 @@ protected:
 				printf("Received Stop\n");
 				if (acquiring.load())
 				{
-					if (!hardware_interface->stop_scan())
+					if (!hardware_interface.stop_scan())
 					{
 						terminate_workers();
 						acquiring.store(false);
@@ -322,20 +328,9 @@ protected:
 
 	void main()  // oct_controller_thread
 	{
-		// Initialize stuff
-		//		While not terminated
-		//			If acquiring
-		//				Lock out IMAQ ring
-		//				Lock out finished ring
-		//				TODO Compute bg spectrum
-		//				Notify ProcessWorker pool
-		//				Block until ProcessWorker pool finished
-		//			Check for messages and update states
 
 		int cumulative_frame_number = 0;
 		int acquired_buffer_number = 0;
-
-		hardware_interface = new NIHardwareInterface();
 
 		fftwf_complex* output_addr = NULL;
 
@@ -346,7 +341,7 @@ protected:
 
 			if (acquiring.load())
 			{
-				acquired_buffer_number = hardware_interface->examine_imaq_buffer(&raw_frame_addr, cumulative_frame_number);
+				acquired_buffer_number = hardware_interface.examine_imaq_buffer(&raw_frame_addr, cumulative_frame_number);
 				if (raw_frame_addr != NULL)
 				{					    
 					// printf("Acq buf num %i\n", acquired_buffer_number);
@@ -394,13 +389,11 @@ protected:
 					cumulative_frame_number += 1;
 
 				}
-				hardware_interface->release_imaq_buffer();
+				hardware_interface.release_imaq_buffer();
 			}
 		}
 
-		hardware_interface->close();
-
-		delete hardware_interface;
+		hardware_interface.close();
 
 		delete output_buffer;
 		delete[] stamp_buffer;
@@ -442,23 +435,28 @@ public:
 	{
 		if (!main_running.load())
 		{
-			hw_cam_name = cam_name;
-			hw_ao_x = aoScanX;
-			hw_ao_y = aoScanY;
-			hw_ao_lt = aoLineTrigger;
-			hw_ao_ft = aoFrameTrigger;
+			hw_cam_name = new char[strlen(cam_name) + 1];
+			strcpy(hw_cam_name, cam_name);
 
-			printf("Opening RealtimeOCTController with following hardware channels:\n");
-			printf("Camera: %s\n", hw_cam_name);
-			printf("X galvo: %s\n", hw_ao_x);
-			printf("Y galvo: %s\n", hw_ao_y);
-			printf("Line camera trigger: %s\n", hw_ao_lt);
-			printf("Frame grab trigger: %s\n", hw_ao_ft);
+			hw_ao_x = new char[strlen(aoScanX) + 1];
+			strcpy(hw_ao_x, aoScanX);
+
+
+			hw_ao_y = new char[strlen(aoScanY) + 1];
+			strcpy(hw_ao_y, aoScanY);
+
+			hw_ao_lt = new char[strlen(aoLineTrigger) + 1];
+			strcpy(hw_ao_lt, aoLineTrigger);
+
+			hw_ao_ft = new char[strlen(aoFrameTrigger) + 1];
+			strcpy(hw_ao_ft, aoFrameTrigger);
 
 			msg_queue = new MessageQueue(65536);
+
 			oct_controller_thread = std::thread(&RealtimeOCTController::main, this);
 			file_stream_worker = new FileStreamWorker(0);  // If no argument is passed, thread does not start
 			motion_worker = new MotionWorker(0);
+
 			main_running.store(true);
 		}
 	}
@@ -550,20 +548,20 @@ public:
 	void start_save(const char* fname, int max_bytes)
 	{
 		// while (!acquiring.load())
-		file_stream_worker->start_streaming(fname, max_bytes, FSTREAM_TYPE_NPY, output_buffer, spatial_aline_size, total_number_of_alines, roi_size);
-	}
-
-	void stop_save()
-	{
-		file_stream_worker->stop_streaming();
+		file_stream_worker->start_streaming(fname, max_bytes, FSTREAM_TYPE_NPY, output_buffer, roi_size, total_number_of_alines, roi_size);
 	}
 
 	void save_n(const char* fname, int max_bytes, int n_to_save)
 	{
 		if (acquiring.load())
 		{
-			file_stream_worker->start_streaming(fname, max_bytes, FSTREAM_TYPE_NPY, output_buffer, spatial_aline_size, total_number_of_alines, roi_size, n_to_save);
+			file_stream_worker->start_streaming(fname, max_bytes, FSTREAM_TYPE_NPY, output_buffer, roi_size, total_number_of_alines, n_to_save);
 		}
+	}
+
+	void stop_save()
+	{
+		file_stream_worker->stop_streaming();
 	}
 
 	// -- MOTION QUANT ---------------------
@@ -616,6 +614,11 @@ public:
 	~RealtimeOCTController()
 	{
 		printf("RealtimeOCTController destructor invoked\n");
+		delete[] hw_cam_name;
+		delete[] hw_ao_x;
+		delete[] hw_ao_y;
+		delete[] hw_ao_lt;
+		delete[] hw_ao_ft;
 		delete file_stream_worker;
 		/*
 		for (int i = 0; i < n_process_workers; i++)

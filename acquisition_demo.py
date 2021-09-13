@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from RealtimeFlowOCT.PyScanPattern.Patterns import Figure8ScanPattern, RasterScanPattern, RoseScanPattern, \
+from RealtimeFlowOCT.PyScanPattern.Patterns import BlineRepeatedRasterScan, RasterScanPattern, RoseScanPattern, \
     BidirectionalRasterScanPattern
 
 from RealtimeOCT import RealtimeOCTController
@@ -26,6 +26,7 @@ INTPDK = 0.305
 
 ROI_OFFSET = 10
 
+BLINE_REPEAT = 2
 NUMBER_OF_ALINES_PER_B = 128
 NUMBER_OF_BLINES = 128
 ALINE_SPACING = 0.001
@@ -33,14 +34,18 @@ ROI_SIZE = 400
 
 fovwidth = ALINE_SPACING * (1 - NUMBER_OF_ALINES_PER_B)
 
-pattern = RasterScanPattern()
-pattern.generate(alines=NUMBER_OF_ALINES_PER_B, blines=NUMBER_OF_BLINES, fov=[fovwidth, fovwidth],
+# pattern = RasterScanPattern()
+# pattern.generate(alines=NUMBER_OF_ALINES_PER_B, blines=NUMBER_OF_BLINES, fov=[fovwidth, fovwidth],
+#                  samples_on=1, samples_off=1)
+
+pattern = BlineRepeatedRasterScan()
+pattern.generate(alines=NUMBER_OF_ALINES_PER_B, blines=NUMBER_OF_BLINES, bline_repeat=BLINE_REPEAT, fov=[fovwidth, fovwidth],
                  samples_on=1, samples_off=1)
+NUMBER_OF_ALINES_PER_B = NUMBER_OF_ALINES_PER_B * BLINE_REPEAT
 
 controller = RealtimeOCTController(CAM, AO_X, AO_Y, AO_LT, AO_FT)
 controller.configure(pattern.get_sample_rate(), ALINE_SIZE, NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES, NUMBER_OF_IMAQ_BUFFERS,
                      roi_offset=ROI_OFFSET, roi_size=ROI_SIZE)
-
 apod_window = np.hanning(ALINE_SIZE).astype(np.float32)
 controller.set_processing(INTPDK, apod_window)
 
@@ -49,6 +54,10 @@ ysig = pattern.get_y() * 18
 ltsig = pattern.get_line_trig() * TRIGGER_GAIN
 ftsig = pattern.get_frame_trig() * TRIGGER_GAIN
 controller.set_scan(xsig, ysig, ltsig, ftsig)
+
+# plt.plot(xsig, ysig)
+# plt.scatter(xsig[ltsig.astype(bool)], ysig[ltsig.astype(bool)])
+# plt.show()
 
 ready_to_scan = False
 while not ready_to_scan:
@@ -74,21 +83,26 @@ print('Scan started!')
 FILENAME = r'D:\realtimeoct_acq\continuous_imaging_test'
 ACQ_N = 10
 
-# controller.save_n(FILENAME, 2E9, ACQ_N)
+time.sleep(2)  # Galvo settling time
+
+# controller.save_n(FILENAME, 2E9, 1)
 controller.start_save(FILENAME, 2E9)
 
-time.sleep(10)
+time.sleep(5)
 
 controller.stop_save()
 
 controller.stop_scan()
 
-z = np.fromfile(FILENAME + '.RAW', dtype=np.complex64)
-zlen = int(len(z) / (NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES * ROI_SIZE))
+try:
+    z = np.fromfile(FILENAME + '.RAW', dtype=np.complex64)
+    zlen = int(len(z) / (NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES * ROI_SIZE))
 
-print('Saved', zlen, 'frames')
+    print('Saved', zlen, 'frames')
 
-img = np.reshape(z, [zlen, NUMBER_OF_BLINES, NUMBER_OF_ALINES_PER_B, ROI_SIZE])
+    img = np.reshape(z, [zlen, NUMBER_OF_BLINES, NUMBER_OF_ALINES_PER_B, ROI_SIZE])
 
-plt.imshow(np.abs(img[zlen - 1, 0, :, :]))
-plt.show()
+    plt.imshow(np.abs(img[zlen - 1, 0, :, :]))
+    plt.show()
+except FileNotFoundError:
+    print("Couldn't open file")
