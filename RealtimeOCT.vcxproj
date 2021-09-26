@@ -175,9 +175,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="Barrier.h" />
     <ClInclude Include="CircAcqBuffer.h" />
     <ClInclude Include="MotionWorker.h" />
     <ClInclude Include="PhaseCorrelationPlan3D.h" />
+    <ClInclude Include="SimpleKalmanFilter.h" />
     <ClInclude Include="SpscBoundedQueue.h" />
     <ClInclude Include="NIHardwareInterface.h" />
     <ClInclude Include="ProcessingWorker.h" />
@@ -189,10 +191,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
-    <ClCompile Include="NIHardwareInterface.cpp" />
-    <ClCompile Include="ProcessingWorker.cpp" />
-    <ClCompile Include="RealtimeOCTController.cpp" />
-    <ClCompile Include="FileStreamWorker.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -79,6 +79,7 @@ protected:
 			}
 			if (msg.flag & ProcessFrame)
 			{
+
 				// k-linearization and DC subtraction
 				for (int i = 0; i < msg.number_of_alines; i++)
 				{
@@ -101,7 +102,7 @@ protected:
 							spectral_buffer[msg.aline_size * i + j] = interp_y0 + interp_dx * (interp_dy / msg.interpdk_plan->d_lam);
 						}
 						// Multiply by window
-						spectral_buffer[msg.aline_size * i + j] *= msg.window_src[j];
+						spectral_buffer[msg.aline_size * i + j] = spectral_buffer[msg.aline_size * i + j] * msg.window_src[j];
 					}
 				}
 				// FFT into destination buffer
@@ -121,7 +122,6 @@ protected:
 
 	void main()
 	{
-		printf("Worker %i main() running...\n", id);
 		while (main_running.load() == true)
 		{
 			this->recv_msg();
@@ -173,7 +173,6 @@ public:
 
 	void terminate()
 	{
-		printf("Worker %i terminating...\n", id);
 		main_running.store(false);
 		processing_thread.join();
 	}

@@ -29,8 +29,8 @@ ROI_OFFSET = 10
 BLINE_REPEAT = 2
 NUMBER_OF_ALINES_PER_B = 128
 NUMBER_OF_BLINES = 128
-ALINE_SPACING = 0.001
-ROI_SIZE = 400
+ALINE_SPACING = 0.002
+ROI_SIZE = 600
 
 fovwidth = ALINE_SPACING * (1 - NUMBER_OF_ALINES_PER_B)
 
@@ -80,29 +80,37 @@ print('Scan started!')
 #     time.sleep(1 / pattern.get_pattern_rate())
 
 
-FILENAME = r'D:\realtimeoct_acq\continuous_imaging_test'
-ACQ_N = 10
+FILENAME = r'D:\realtimeoct_acq\testing'
+ACQ_N = 5
+
+if os.path.exists(FILENAME + '.RAW'):
+    print('Deleting', FILENAME + '.RAW', 'because it already exists.')
+    os.remove(FILENAME + '.RAW')
 
 time.sleep(2)  # Galvo settling time
 
-# controller.save_n(FILENAME, 2E9, 1)
-controller.start_save(FILENAME, 2E9)
+controller.save_n(FILENAME, 2E9, ACQ_N)
+# controller.start_save(FILENAME, 2E9)
 
-time.sleep(5)
+time.sleep(int(1 / pattern.get_pattern_rate() * (ACQ_N * 2)))
 
 controller.stop_save()
 
 controller.stop_scan()
 
+scanning = True
+while scanning:
+    print("Waiting for scanning to stop...")
+    time.sleep(1)
+    scanning = controller.is_scanning()
+
 try:
     z = np.fromfile(FILENAME + '.RAW', dtype=np.complex64)
     zlen = int(len(z) / (NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES * ROI_SIZE))
-
     print('Saved', zlen, 'frames')
-
     img = np.reshape(z, [zlen, NUMBER_OF_BLINES, NUMBER_OF_ALINES_PER_B, ROI_SIZE])
-
     plt.imshow(np.abs(img[zlen - 1, 0, :, :]))
     plt.show()
+
 except FileNotFoundError:
     print("Couldn't open file")

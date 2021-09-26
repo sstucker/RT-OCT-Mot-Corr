@@ -24,6 +24,8 @@ import os
 import multiprocessing as mp
 from queue import Empty, Full
 
+import cv2
+
 CAM = 'img1'
 AO_X = 'Dev1/ao1'
 AO_Y = 'Dev1/ao2'
@@ -43,13 +45,14 @@ NUMBER_OF_ALINES_PER_B = d3
 NUMBER_OF_BLINES = d3
 ROI_SIZE = d3
 
-UPSAMPLE_FACTOR = 3
+UPSAMPLE_FACTOR = 1
 
-REFRESH_RATE = 220  # hz
+# REFRESH_RATE = 220  # hz
 
 ASYNC_WAIT_DEBUG = 0
 
 PLOT_RANGE = 4
+
 
 def reshape_unidirectional_frame(A, z, x, b, dtype=np.complex64):
     """
@@ -104,6 +107,7 @@ def hanning_cube(dim):
     win = np.multiply(win1, win2)
     return win
 
+
 def blackman_cube(dim, pad=0):
     w = np.pad(np.blackman(dim), pad)
     L = w.shape[0]
@@ -114,7 +118,6 @@ def blackman_cube(dim, pad=0):
     win2 = np.transpose(win2, np.hstack([1, 2, 0]))
     win = np.multiply(win1, win2)
     return win
-
 
 class MainWindow(QtWidgets.QMainWindow):
 
@@ -172,15 +175,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_layout.addRow(self._stop_output_button)
         self._stop_output_button.clicked.connect(self._stop_output)
 
-        # self._nacq_spin = QtWidgets.QSpinBox()
-        # self._nacq_spin.setRange(100, 100000000)
-        # self._nacq_spin.setValue(10000)
-        # self._control_layout.addRow(QtWidgets.QLabel("N to acquire"), self._nacq_spin)
+        self._rec_sec_spin = QtWidgets.QSpinBox()
+        self._rec_sec_spin.setRange(1, 60 * 20)
+        self._rec_sec_spin.setValue(60)
+        self._control_layout.addRow(QtWidgets.QLabel("Seconds to record"), self._rec_sec_spin)
 
-        # self._fname_edit = QtWidgets.QLineEdit()
-        # self._fname_edit.setText("output")
-        # self._control_layout.addRow(QtWidgets.QLabel("File name"), self._fname_edit)
-        #
+        self._fname_edit = QtWidgets.QLineEdit()
+        self._fname_edit.setText("output")
+        self._control_layout.addRow(QtWidgets.QLabel("Recording name"), self._fname_edit)
+
+        self._rec_button = QtWidgets.QPushButton()
+        self._rec_button.setText("Record")
+        self._control_layout.addRow(self._rec_button)
+        self._rec_button.pressed.connect(self._start_recording)
+
         self._ref_button = QtWidgets.QPushButton()
         self._ref_button.setText("Update reference")
         self._control_layout.addRow(self._ref_button)
@@ -241,7 +249,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_layout.addRow(QtWidgets.QLabel("Slice"), self._slice_slider)
 
         self._trigger_offset_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self._trigger_offset_slider.setValue(8)
+        self._trigger_offset_slider.setValue(16)
         self._trigger_offset_slider.setSingleStep(1)
         self._trigger_offset_slider.valueChanged.connect(self._update_scan_pattern)
         self._trigger_offset_label = QtWidgets.QLabel("Trigger skew (samples)")
@@ -282,23 +290,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_layout.addRow(QtWidgets.QLabel("KF v decay (g)"), self._g_spin)
         self._g_spin.valueChanged.connect(self._update_motion_parameters)
 
-        self._q_spin = QtWidgets.QDoubleSpinBox()
-        self._q_spin.setDecimals(3)
-        self._q_spin.setValue(0.0100)
-        self._q_spin.setRange(-9999, 9999)
-        self._control_layout.addRow(QtWidgets.QLabel("KF process noise (q)"), self._q_spin)
-        self._q_spin.valueChanged.connect(self._update_motion_parameters)
+        # self._q_spin = QtWidgets.QDoubleSpinBox()
+        # self._q_spin.setDecimals(3)
+        # self._q_spin.setValue(0.0100)
+        # self._q_spin.setRange(-9999, 9999)
+        # self._control_layout.addRow(QtWidgets.QLabel("KF process noise (q)"), self._q_spin)
+        # self._q_spin.valueChanged.connect(self._update_motion_parameters)
 
         self._r_spin = QtWidgets.QDoubleSpinBox()
-        self._r_spin.setDecimals(3)
-        self._r_spin.setValue(4)
-        self._r_spin.setRange(-9999, 9999)
-        self._control_layout.addRow(QtWidgets.QLabel("KF meas noise (r)"), self._r_spin)
+        self._r_spin.setDecimals(0)
+        self._r_spin.setValue(100)
+        self._r_spin.setRange(-10000000, 10000000)
+        self._control_layout.addRow(QtWidgets.QLabel("KF r / q"), self._r_spin)
         self._r_spin.valueChanged.connect(self._update_motion_parameters)
 
         self._d = np.ones(3).astype(np.float64) * self._d_spin.value()
         self._g = np.ones(3).astype(np.float64) * self._g_spin.value()
-        self._q = np.ones(3).astype(np.float64) * self._q_spin.value()
+        self._q = np.ones(3).astype(np.float64) * 1
         self._r = np.ones(3).astype(np.float64) * self._r_spin.value()
 
         self._control_panel.setLayout(self._control_layout)
@@ -325,6 +333,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_scan_pattern()
         time.sleep(ASYNC_WAIT_DEBUG)
 
+        self._avi_cap = cv2.VideoCapture(0)
+        self._avi_writer = None
+
+        frame_width = int(self._avi_cap.get(3))
+        frame_height = int(self._avi_cap.get(4))
+
+        self._avi_size = (frame_width, frame_height)
+
+        self._rec_mot = []
+        self._rec_img = []
+        self._recording_n = -1
+        self._recorded_n = 0
+
+        self._t_rec_start = -1
+
         self._spectrum_buffer = np.empty(ALINE_SIZE, dtype=np.float32)
         self._grab_buffer = np.empty(ROI_SIZE * NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES, dtype=np.complex64)
         self._grab_buffer_upsampled = np.empty(ROI_SIZE * UPSAMPLE_FACTOR * NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR * NUMBER_OF_BLINES * UPSAMPLE_FACTOR, dtype=np.complex64)
@@ -334,10 +357,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self._motion_output_enabled = False
         self._timer = QTimer()
 
+    def _start_recording(self):
+        if self._avi_writer is not None:
+            self._avi_writer.release()
+        self._avi_writer = cv2.VideoWriter(self._fname_edit.text() + '.avi', cv2.VideoWriter_fourcc(*'MJPG'), 10, self._avi_size)
+        self._recording_n = int(self._pat.get_pattern_rate() * self._rec_sec_spin.value())
+        self._recorded_n = 0
+        print('Allocating recording buffers...')
+        self._rec_mot = np.empty([4, self._recording_n], dtype=np.float64)
+        self._rec_img = np.empty([ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES, self._recording_n], dtype=np.complex64)
+
     def _start_scan(self):
         self._controller.start_scan()
-        self._timer.timeout.connect(self._plot)
-        self._timer.start(1 / REFRESH_RATE * 1000)
+        self._timer.timeout.connect(self._update)
+        # self._timer.start(1 / REFRESH_RATE * 1000)
+        self._timer.start(2 * int(1 / self._pat.get_pattern_rate()))
 
     def _stop_scan(self):
         self._timer.stop()
@@ -354,7 +388,7 @@ class MainWindow(QtWidgets.QMainWindow):
             bd = False
         self._d = np.ones(3).astype(np.float64) * self._d_spin.value()
         self._g = np.ones(3).astype(np.float64) * self._g_spin.value()
-        self._q = np.ones(3).astype(np.float64) * self._q_spin.value()
+        self._q = np.ones(3).astype(np.float64) * 1
         self._r = np.ones(3).astype(np.float64) * self._r_spin.value()
         self._generate_windows()
         self._controller.start_motion_output(
@@ -372,12 +406,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self._generate_windows()
             self._d = np.ones(3).astype(np.float64) * self._d_spin.value()
             self._g = np.ones(3).astype(np.float64) * self._g_spin.value()
-            self._q = np.ones(3).astype(np.float64) * self._q_spin.value()
+            self._q = np.ones(3).astype(np.float64) * 1
             self._r = np.ones(3).astype(np.float64) * self._r_spin.value()
             self._controller.update_motion_parameters(np.array([self._x_factor_spin.value(), self._y_factor_spin.value(), self._z_factor_spin.value()]).astype(np.float64),
                                                       int(self._npeak_spin.value()), self._spectral_window3d, self._spatial_window3d, self._d, self._g, self._q, self._r, bidirectional=bd)
 
-    def _plot(self):
+    def _update(self):
         got = self._controller.grab_frame(self._grab_buffer)
         try:
             if got > -1 and not np.isnan(np.sum(self._grab_buffer)):
@@ -386,55 +420,77 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     self._display_buffer = np.abs(reshape_unidirectional_frame(self._grab_buffer, ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES))
 
-                if self._xsection_radio.isChecked():
-                    if self._mip_check.isChecked():
-                        self._display_buffer = np.max(self._display_buffer, axis=1)
-                    else:
-                        self._display_buffer = self._display_buffer[:, np.floor_divide(self._slice_slider.value(), UPSAMPLE_FACTOR), :]
-                elif self._ysection_radio.isChecked():
-                    if self._mip_check.isChecked():
-                        self._display_buffer = np.max(self._display_buffer, axis=2)
-                    else:
-                        self._display_buffer = self._display_buffer[:, :, np.floor_divide(self._slice_slider.value(), UPSAMPLE_FACTOR)]
-                else:
-                    if self._mip_check.isChecked():
-                        self._display_buffer = np.max(self._display_buffer, axis=0)
-                    else:
-                        self._display_buffer = self._display_buffer[np.floor_divide(self._slice_slider.value(), UPSAMPLE_FACTOR), :, :]
-
-                self.tn_view.setImage(self._display_buffer)
-                self._controller.grab_spectrum(self._spectrum_buffer)
-                self.bg_plot.set_spectrum_data(self._spectrum_buffer)
-
                 if self._motion_output_enabled:
-
                     # Copying the 3D correlogram out of the working buffer is VERY slow
 
-                    # self._controller.grab_motion_correlogram(self._grab_buffer_upsampled)
-                    # self._display_buffer_upsampled = np.abs(reshape_unidirectional_frame(self._grab_buffer_upsampled, ROI_SIZE * UPSAMPLE_FACTOR, NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR, NUMBER_OF_BLINES * UPSAMPLE_FACTOR))
-                    #
-                    # if self._xsection_radio.isChecked():
-                    #     if self._mip_check.isChecked():
-                    #         self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=1)
-                    #     else:
-                    #         self._display_buffer_upsampled = self._display_buffer_upsampled[:, self._slice_slider.value(), :]
-                    # elif self._ysection_radio.isChecked():
-                    #     if self._mip_check.isChecked():
-                    #         self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=2)
-                    #     else:
-                    #         self._display_buffer_upsampled = self._display_buffer_upsampled[:, :, self._slice_slider.value()]
-                    # else:
-                    #     if self._mip_check.isChecked():
-                    #         self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=0)
-                    #     else:
-                    #         self._display_buffer_upsampled = self._display_buffer_upsampled[self._slice_slider.value(), :, :]
-                    #
-                    # self.r_view.setImage(np.fft.fftshift(self._display_buffer_upsampled))
+                    self._controller.grab_motion_correlogram(self._grab_buffer_upsampled)
+                    self._display_buffer_upsampled = np.abs(reshape_unidirectional_frame(self._grab_buffer_upsampled, ROI_SIZE * UPSAMPLE_FACTOR, NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR, NUMBER_OF_BLINES * UPSAMPLE_FACTOR))
+
+                    if self._xsection_radio.isChecked():
+                        if self._mip_check.isChecked():
+                            self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=1)
+                        else:
+                            self._display_buffer_upsampled = self._display_buffer_upsampled[:, self._slice_slider.value(), :]
+                    elif self._ysection_radio.isChecked():
+                        if self._mip_check.isChecked():
+                            self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=2)
+                        else:
+                            self._display_buffer_upsampled = self._display_buffer_upsampled[:, :, self._slice_slider.value()]
+                    else:
+                        if self._mip_check.isChecked():
+                            self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=0)
+                        else:
+                            self._display_buffer_upsampled = self._display_buffer_upsampled[self._slice_slider.value(), :, :]
+
+                    self.r_view.setImage(np.fft.fftshift(self._display_buffer_upsampled))
                     # self.r_view.setImage(self._display_buffer_upsampled)
+
+                    # Grab motion vector
                     if not self._controller.grab_motion_vector(self._mot_buffer):  # Returns 0 if dequeue is successful
                         self.mot_x_plot.append_to_plot([self._mot_buffer[0]])
                         self.mot_y_plot.append_to_plot([self._mot_buffer[1]])
                         self.mot_z_plot.append_to_plot([self._mot_buffer[2]])
+                        if self._recorded_n < self._recording_n:  # If actively recording
+                            if self._recorded_n == 0:
+                                self._t_rec_start = time.time()
+                            self._rec_button.setEnabled(False)
+                            # self._rec_img[:, :, :, self._recorded_n] = self._display_buffer
+                            self._rec_mot[:, self._recorded_n] = self._mot_buffer
+                            # ret, frame = self._avi_cap.read()
+                            # if ret:
+                            #     self._avi_writer.write(frame)
+                            self._recorded_n += 1
+                            # print('Recorded frame', self._recorded_n, 'of', self._recording_n)
+                        elif self._recorded_n == self._recording_n:  # Recording is finished, write the files
+                            print('Finished recording', self._fname_edit, 'in', time.time() - self._t_rec_start, 's')
+                            self._rec_button.setEnabled(True)
+                            np.save(self._fname_edit.text() + '_img', self._rec_img)
+                            np.save(self._fname_edit.text() + '_mot', self._rec_mot)
+                            self._recording_n = -1
+                            self._recorded_n = 0
+
+                if not self._recorded_n < self._recording_n:  # Only draw view if not recording
+                    if self._xsection_radio.isChecked():
+                        if self._mip_check.isChecked():
+                            self._display_buffer = np.max(self._display_buffer, axis=1)
+                        else:
+                            self._display_buffer = self._display_buffer[:, np.floor_divide(self._slice_slider.value(), UPSAMPLE_FACTOR), :]
+                    elif self._ysection_radio.isChecked():
+                        if self._mip_check.isChecked():
+                            self._display_buffer = np.max(self._display_buffer, axis=2)
+                        else:
+                            self._display_buffer = self._display_buffer[:, :, np.floor_divide(self._slice_slider.value(), UPSAMPLE_FACTOR)]
+                    else:
+                        if self._mip_check.isChecked():
+                            self._display_buffer = np.max(self._display_buffer, axis=0)
+                        else:
+                            self._display_buffer = self._display_buffer[np.floor_divide(self._slice_slider.value(), UPSAMPLE_FACTOR), :, :]
+
+                    self.tn_view.setImage(self._display_buffer)
+
+                self._controller.grab_spectrum(self._spectrum_buffer)
+                self.bg_plot.set_spectrum_data(self._spectrum_buffer)
+
             else:
                 # print('Frame contains NaN')
                 pass
@@ -487,6 +543,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event):
         self._timer.stop()
         self._controller.stop_scan()
+        self._avi_cap.release()
+        if self._avi_writer is not None:
+            self._avi_writer.release()
         # self._controller.stop_motion_output()
         event.accept()
 

@@ -65,10 +65,11 @@ private:
 
 public:
 
-	void open(const char* name)
+	void open(const char* name) override
 	{
 		fout = std::ofstream(name, std::ios::out | std::ios::binary);
 	}
+
 	void writeFrame(void* f, int frame_size) override
 	{
 		fout.write((char*)f, frame_size);
@@ -142,7 +143,7 @@ protected:
 			}
 			if (msg.flag & StreamN)
 			{
-				printf("Numbered save: streaming %i frames to file %s.\n", msg.n_to_stream, file_name);
+				// printf("Numbered save: streaming %i frames to file %s.\n", msg.n_to_stream, file_name);
 				n_to_stream = msg.n_to_stream;
 			}
 			if (msg.flag & StopStream)
@@ -161,7 +162,6 @@ protected:
 
 	void main()
 	{
-		printf("FileStreamWorker main() running...\n");
 
 		bool fopen = false;
 		int n_got;
@@ -219,6 +219,7 @@ protected:
 							fopen = false;
 							streaming.store(false);
 						}
+
 						if (frames_in_current_file == frames_per_file)  // If this file cannot get larger, need to start a new one
 						{
 							file_name_inc += 1;
@@ -229,12 +230,13 @@ protected:
 								fopen = false;
 							}
 						}
+
 					}
 				}
 				else  // Dropped frame, since we have fallen behind, get the latest next time
 				{
+					printf("Dropped frame %i, got %i instead\n", latest_frame_n, n_got);
 					latest_frame_n = acq_buffer->get_count();
-					printf("Dropped frame %i, got %i\n", latest_frame_n, n_got);
 				}
 				acq_buffer->release();
 			}
@@ -262,14 +264,12 @@ public:
 
 	FileStreamWorker(int thread_id)
 	{
-
 		id = thread_id;
 
 		msg_queue = new FstreamQueue(65536);
 		main_running = ATOMIC_VAR_INIT(true);
 		streaming = ATOMIC_VAR_INIT(false);
 		fstream_thread = std::thread(&FileStreamWorker::main, this);
-
 	}
 
 	// DO NOT access non-atomics from outside main()

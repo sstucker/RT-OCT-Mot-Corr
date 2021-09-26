@@ -127,7 +127,7 @@ class PhaseCorrelationPlan3D
             }
         }
 
-        inline void phaseCorr(double* dst)
+        inline virtual void phaseCorr(double* dst)
         {
             // Calculate phase corr matrix R
             for (int i = 0; i < dims[0]; i++)
@@ -259,7 +259,6 @@ class PhaseCorrelationPlan3D
             reference_acquired = false;
 
             this->bidirectional = bidirectional;
-            printf("Value of bidirectional is %i\n", this->bidirectional);
 
             npeak = npeak_centroid;
             upsample_factor = upsample;
@@ -278,9 +277,9 @@ class PhaseCorrelationPlan3D
                 fsize *= dims[i];
             }
 
-            printf("Planning 3D phase correlation:\n");
-            printf("Upsampling [%i, %i, %i] -> [%i, %i, %i]\n", og_dims[0], og_dims[1], og_dims[2], dims[0], dims[1], dims[2]);
-            printf("Allocating buffers of size %i\n", fsize);
+            // printf("Planning 3D phase correlation:\n");
+            // printf("Upsampling [%i, %i, %i] -> [%i, %i, %i]\n", og_dims[0], og_dims[1], og_dims[2], dims[0], dims[1], dims[2]);
+            // printf("Allocating buffers of size %i\n", fsize);
             spatial_filter = new float[fsize];
             spectral_filter = new float[fsize];
             // memset(spatial_filter, 1.0, fsize * sizeof(float));
@@ -295,7 +294,7 @@ class PhaseCorrelationPlan3D
 
             fftwf_import_wisdom_from_filename("phasecorr_fftw_wisdom.txt");
 
-            printf("Planning FFTWF transform...\n");
+            // printf("Planning FFTWF transform...\n");
             pc_roi_fft_plan = fftwf_plan_dft(3, dims, t0, t0, FFTW_FORWARD, FFTW_PATIENT);
             pc_r_fft_plan = fftwf_plan_dft(3, dims, r, R, FFTW_BACKWARD, FFTW_PATIENT);
 
@@ -346,7 +345,6 @@ class PhaseCorrelationPlan3D
             reference_acquired = true;
             applyWindow(t0, spatial_filter);  // Multiply buffer by apod window prior to FFT
             fftwf_execute_dft(pc_roi_fft_plan, t0, t0);  // Execute in place FFT
-            printf("Got new reference frame.\n");
             fflush(stdout);
         }
 
@@ -400,5 +398,37 @@ class PhaseCorrelationPlan3D
 		}
 
 
+
+};
+
+class PhaseCorrelationPlanMIP3D : public PhaseCorrelationPlan3D
+{
+    public:
+
+        PhaseCorrelationPlanMIP3D()
+        {
+
+        }
+
+        PhaseCorrelationPlanMIP3D(int* input_dims, int upsample, int npeak_centroid, float* spectral_filter_3d, float* spatial_filter_3d, bool bidirectional)
+            : PhaseCorrelationPlan3D(input_dims, upsample, npeak_centroid, spectral_filter_3d, spatial_filter_3d, bidirectional)
+        {
+
+        }
+
+
+        inline void phaseCorr(double* dst) override
+        {
+            dst[0] = 0;
+            dst[1] = 0;
+            dst[2] = 0;
+            dst[3] = 0;
+            printf("PhaseCorrelationPlanMIP3D\n");
+            // memcpy(dst + 0, &maxval, sizeof(double));
+            // memcpy(dst + 0, &dx, sizeof(double));
+            // memcpy(dst + 1, &dy, sizeof(double));
+            // memcpy(dst + 2, &dz, sizeof(double));
+
+        }
 
 };

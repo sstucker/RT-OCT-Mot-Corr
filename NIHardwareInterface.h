@@ -119,7 +119,6 @@ private:
         {
             return err;
         }
-        printf("IMAQ session opened with camera %s\n", cameraName);
         err = imgSessionOpen(interface_id, &session_id);
         // Configure the frame acquisition to be triggered by the TTL1 line
         err = imgSetAttribute2(session_id, IMG_ATTR_EXT_TRIG_LINE_FILTER, true);
@@ -327,9 +326,17 @@ public:
         err = imgSessionExamineBuffer2(session_id, frame_index, &examined_number, (void**)raw_frame_addr);
         if (err == 0)
         {
-            return examined_number;
+            for (int i = 0; i < acqWinWidth * acqWinHeight; i++)
+            {
+                if (*raw_frame_addr[i] > 0)
+                {
+                    return examined_number;
+                }
+            }
+            return -1;
+            printf("Grabbed a null frame!\n");
         }
-        else if (err == IMG_ERR_TIMO || err == IMG_ERR_TIMEOUT)  // Don't print error if it is timeout
+        else if (err == IMG_ERR_TIMO || err == IMG_ERR_TIMEOUT)
         {
             printf("IMAQ examine buffer timed out trying to get %i\n", frame_index);
             return -1;

@@ -59,7 +59,6 @@ lib.RTOCT_grab_motion_vector.argtypes = [ControllerHandle, c_double_p]
 
 lib.PCPLAN3D_create.restype = PlanHandle
 
-
 lib.PCPLAN3D_close.argtypes = [PlanHandle]
 
 lib.PCPLAN3D_set_reference.argtypes = (PlanHandle, c_complex64_p)
@@ -119,7 +118,7 @@ class RealtimeOCTController:
         intpdk -- scalar. Parameter for linear-in-wavelength -> linear-in-wavenmber interpolation.
         apod_window -- numpy array. Window which is multiplied by each spectral A-line prior to FFT i.e. Hanning window
         """
-        lib.RTOCT_setProcessing(self._handle, np.double(intpdk), apod_window.astype(np.float32))
+        lib.RTOCT_setProcessing(self._handle, np.double(intpdk), apod_window)
 
     def set_scan(self, x, y, lt, ft):
         """
@@ -184,4 +183,4 @@ class RealtimeOCTController:
         lib.RTOCT_grab_motion_frame(self._handle, out)
 
     def grab_motion_vector(self, out):
-        return lib.RTOCT_grab_motion()
+        return lib.RTOCT_grab_motion_vector(self._handle, out)

@@ -16,8 +16,6 @@
 #include <vector>
 #include <ctime>
 #include <Windows.h>
-#include <condition_variable>
-#include <mutex>
 
 
 enum ControllerMessageFlag
@@ -48,7 +46,7 @@ struct ControllerMessage
 	int number_of_alines;
 	int number_of_buffers;
 	double intpdk;
-	float* window;
+	float* window;  // Spectrum apodization window
 };
 
 typedef spsc_bounded_queue_t<ControllerMessage> MessageQueue;
@@ -126,7 +124,6 @@ protected:
 			processing_worker_pool[i] = new ProcessingWorker(i);
 			processing_worker_pool[i]->configure(aline_size, alines_per_worker);
 		}
-		printf("Launched %i worker threads each processing %i A-lines each of size %i...\n", n_process_workers, alines_per_worker, aline_size);
 	}
 	 
 	inline void terminate_workers()  // Called from ScanStop
@@ -201,7 +198,7 @@ protected:
 				if (!file_stream_worker->is_streaming() && config_ready.load())
 				{
 					processing_ready.store(false);
-
+					
 					interpdk_plan = WavenumberInterpolationPlan(aline_size, msg.intpdk);
 					spectral_window = new float[aline_size];
 					memcpy(spectral_window, msg.window, aline_size * sizeof(float));
@@ -234,7 +231,6 @@ protected:
 					printf("Frame grab trigger: %s\n", hw_ao_ft);
 
 					if (!hardware_interface.open(hw_cam_name, hw_ao_x, hw_ao_y, hw_ao_lt, hw_ao_ft, msg.hw_dac_fs, aline_size, total_number_of_alines, msg.number_of_buffers))
-					// if (!hardware_interface.open("img1", "Dev1/ao1", "Dev1/ao2", "Dev1/ao0", "Dev1/ao3", msg.hw_dac_fs, aline_size, total_number_of_alines, msg.number_of_buffers))
 					{
 						// Determine number of workers based on A-lines per frame
 						if (total_number_of_alines > 4096)
@@ -283,8 +279,6 @@ protected:
 			}
 			if (msg.flag & StartScan)
 			{
-				printf("Received Start Msg\n");
-				
 				if (config_ready.load() && processing_ready.load() && scan_ready.load())
 				{
 					
@@ -307,14 +301,12 @@ protected:
 			}
 			if (msg.flag & StopScan)
 			{
-				printf("Received Stop\n");
 				if (acquiring.load())
 				{
 					if (!hardware_interface.stop_scan())
 					{
 						terminate_workers();
 						acquiring.store(false);
-						printf("Terminated all workers.\n");
 						fflush(stdout);
 					}
 				}
@@ -342,7 +334,8 @@ protected:
 			if (acquiring.load())
 			{
 				acquired_buffer_number = hardware_interface.examine_imaq_buffer(&raw_frame_addr, cumulative_frame_number);
-				if (raw_frame_addr != NULL)
+				
+				if ((raw_frame_addr != NULL) && (acquired_buffer_number > -1))
 				{					    
 					// printf("Acq buf num %i\n", acquired_buffer_number);
 					output_addr = output_buffer->lock_out_head();
@@ -358,7 +351,7 @@ protected:
 					}
 
 					// Compute background spectrum to be used with next frame while workers compute
-					memset(background_spectrum_new, 0, aline_size * sizeof(float));
+					memset(background_spectrum_new, 1, aline_size * sizeof(float));
 					for (int i = 0; i < total_number_of_alines; i++)
 					{
 						for (int j = 0; j < aline_size; j++)
@@ -441,7 +434,6 @@ public:
 			hw_ao_x = new char[strlen(aoScanX) + 1];
 			strcpy(hw_ao_x, aoScanX);
 
-
 			hw_ao_y = new char[strlen(aoScanY) + 1];
 			strcpy(hw_ao_y, aoScanY);
 
@@ -463,11 +455,6 @@ public:
 
 	int configure(int dac_rate, int aline_size, int roi_offset, int roi_size, int number_of_alines, int number_of_buffers)
 	{
-		if (number_of_alines % 2 == 1)  // Number of A-lines must be even
-		{
-			printf("Config failed. Number of A-lines must be even!\n");
-			return -1;
-		}
 		ControllerMessage msg;
 		msg.flag = ConfigureController;
 		msg.hw_dac_fs = dac_rate;
@@ -609,6 +596,7 @@ public:
 		main_running.store(false);
 		printf("RealtimeOCTController closing...\n");
 		oct_controller_thread.join();
+		file_stream_worker->terminate();  // Joins fstream
 	}
 
 	~RealtimeOCTController()

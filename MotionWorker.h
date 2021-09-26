@@ -4,6 +4,7 @@
 #include <atomic>
 #include "fftw3.h"
 #include <condition_variable>
+#include <algorithm>
 #include <complex>
 #include <chrono>
 #include "SpscBoundedQueue.h"
@@ -83,7 +84,7 @@ protected:
 	std::atomic_bool running;
 
 	CircAcqBuffer<fftwf_complex>* acq_buffer;
-	PhaseCorrelationPlan3D phase_correlation_plan;
+	PhaseCorrelationPlanMIP3D phase_correlation_plan;
 
 	int buffer_size;
 
@@ -131,7 +132,6 @@ protected:
 			filter_input_xyz[i] = Eigen::VectorXd(1);
 
 		}
-		printf("Filters initialized with values q = %f, r = %f\n", q[0], r[0]);
 		return 0;
 	}
 
@@ -205,13 +205,13 @@ protected:
 							memcpy(daq_xyz_scale, msg.scale_xyz, 3 * sizeof(double));
 							fftwf_complex* mot_roi_buf = fftwf_alloc_complex(msg.input_dims[0] * msg.input_dims[1] * msg.input_dims[2]);
 							buffer_size = (msg.input_dims[0] * msg.upsample_factor) * (msg.input_dims[1] * msg.upsample_factor) * (msg.input_dims[2] * msg.upsample_factor);
-							phase_correlation_plan = PhaseCorrelationPlan3D(msg.input_dims, msg.upsample_factor, msg.centroid_n_peak, msg.spectral_filter, msg.spatial_filter, msg.bidirectional);
+							phase_correlation_plan = PhaseCorrelationPlanMIP3D(msg.input_dims, msg.upsample_factor, msg.centroid_n_peak, msg.spectral_filter, msg.spatial_filter, msg.bidirectional);
 
 							filters_xyz = new SimpleKalmanFilter[3];
 							filter_input_xyz = new Eigen::VectorXd[3];
 							initializeFilters(msg.filter_d, msg.filter_g, msg.filter_q, msg.filter_r);
 
-							filters_enabled = true;
+							filters_enabled = true;  // todo parameter
 
 							running.store(true);
 							update_reference = true;  // Always acquire a reference frame first
@@ -226,7 +226,6 @@ protected:
 			if (msg.flag & UpdateParameters)
 			{
 				memcpy(daq_xyz_scale, msg.scale_xyz, 3 * sizeof(double));
-				printf("New DAC scale factors [%f, %f, %f]\n", daq_xyz_scale[0], daq_xyz_scale[1], daq_xyz_scale[2]);
 				phase_correlation_plan.setSpectralFilter(msg.spectral_filter);
 				phase_correlation_plan.setSpatialFilter(msg.spatial_filter);
 				phase_correlation_plan.setCentroidN(msg.centroid_n_peak);
