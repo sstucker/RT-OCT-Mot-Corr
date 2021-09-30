@@ -24,7 +24,7 @@ import os
 import multiprocessing as mp
 from queue import Empty, Full
 
-import cv2
+from CvStream import CvStream
 
 CAM = 'img1'
 AO_X = 'Dev1/ao1'
@@ -45,7 +45,7 @@ NUMBER_OF_ALINES_PER_B = d3
 NUMBER_OF_BLINES = d3
 ROI_SIZE = d3
 
-UPSAMPLE_FACTOR = 1
+UPSAMPLE_FACTOR = 3
 
 # REFRESH_RATE = 220  # hz
 
@@ -333,16 +333,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_scan_pattern()
         time.sleep(ASYNC_WAIT_DEBUG)
 
-        self._avi_cap = cv2.VideoCapture(0)
-        self._avi_writer = None
-
-        frame_width = int(self._avi_cap.get(3))
-        frame_height = int(self._avi_cap.get(4))
-
-        self._avi_size = (frame_width, frame_height)
-
+        self._cvstream = None
         self._rec_mot = []
         self._rec_img = []
+
         self._recording_n = -1
         self._recorded_n = 0
 
@@ -351,6 +345,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._spectrum_buffer = np.empty(ALINE_SIZE, dtype=np.float32)
         self._grab_buffer = np.empty(ROI_SIZE * NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES, dtype=np.complex64)
         self._grab_buffer_upsampled = np.empty(ROI_SIZE * UPSAMPLE_FACTOR * NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR * NUMBER_OF_BLINES * UPSAMPLE_FACTOR, dtype=np.complex64)
+        self._grab_buffer_upsampled_2d = np.empty(NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR * NUMBER_OF_BLINES * UPSAMPLE_FACTOR, dtype=np.complex64)
 
         self._mot_buffer = np.empty(4, dtype=np.float64)
 
@@ -358,14 +353,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._timer = QTimer()
 
     def _start_recording(self):
-        if self._avi_writer is not None:
-            self._avi_writer.release()
-        self._avi_writer = cv2.VideoWriter(self._fname_edit.text() + '.avi', cv2.VideoWriter_fourcc(*'MJPG'), 10, self._avi_size)
+        self._cvstream = CvStream(fps=20)
         self._recording_n = int(self._pat.get_pattern_rate() * self._rec_sec_spin.value())
         self._recorded_n = 0
         print('Allocating recording buffers...')
         self._rec_mot = np.empty([4, self._recording_n], dtype=np.float64)
         self._rec_img = np.empty([ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES, self._recording_n], dtype=np.complex64)
+        self._cvstream.capture_n_seconds(self._fname_edit.text() + '_vid', int(self._rec_sec_spin.value()))
 
     def _start_scan(self):
         self._controller.start_scan()
@@ -421,29 +415,39 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._display_buffer = np.abs(reshape_unidirectional_frame(self._grab_buffer, ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES))
 
                 if self._motion_output_enabled:
-                    # Copying the 3D correlogram out of the working buffer is VERY slow
 
-                    self._controller.grab_motion_correlogram(self._grab_buffer_upsampled)
-                    self._display_buffer_upsampled = np.abs(reshape_unidirectional_frame(self._grab_buffer_upsampled, ROI_SIZE * UPSAMPLE_FACTOR, NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR, NUMBER_OF_BLINES * UPSAMPLE_FACTOR))
+                    # -- MIP3 --------------------------------------------------------------------------
 
-                    if self._xsection_radio.isChecked():
-                        if self._mip_check.isChecked():
-                            self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=1)
-                        else:
-                            self._display_buffer_upsampled = self._display_buffer_upsampled[:, self._slice_slider.value(), :]
-                    elif self._ysection_radio.isChecked():
-                        if self._mip_check.isChecked():
-                            self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=2)
-                        else:
-                            self._display_buffer_upsampled = self._display_buffer_upsampled[:, :, self._slice_slider.value()]
-                    else:
-                        if self._mip_check.isChecked():
-                            self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=0)
-                        else:
-                            self._display_buffer_upsampled = self._display_buffer_upsampled[self._slice_slider.value(), :, :]
+                    # self._controller.grab_motion_correlogram(self._grab_buffer_upsampled_2d)
+                    # # self._controller.grab_motion_frame(self._grab_buffer_upsampled_2d)
+                    # self._display_buffer_upsampled = np.abs(np.reshape(self._grab_buffer_upsampled_2d, [NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR, NUMBER_OF_BLINES * UPSAMPLE_FACTOR]))
+                    # self.r_view.setImage(np.fft.ifftshift(self._display_buffer_upsampled))
+                    # # self.r_view.setImage(np.fft.ifft2(self._display_buffer_upsampled)))
 
-                    self.r_view.setImage(np.fft.fftshift(self._display_buffer_upsampled))
-                    # self.r_view.setImage(self._display_buffer_upsampled)
+                    # -- Copying the 3D correlogram out of the working buffer is VERY slow -------------
+
+                    # self._controller.grab_motion_correlogram(self._grab_buffer_upsampled)
+                    # self._display_buffer_upsampled = np.abs(reshape_unidirectional_frame(self._grab_buffer_upsampled, ROI_SIZE * UPSAMPLE_FACTOR, NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR, NUMBER_OF_BLINES * UPSAMPLE_FACTOR))
+                    #
+                    # if self._xsection_radio.isChecked():
+                    #     if self._mip_check.isChecked():
+                    #         self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=1)
+                    #     else:
+                    #         self._display_buffer_upsampled = self._display_buffer_upsampled[:, self._slice_slider.value(), :]
+                    # elif self._ysection_radio.isChecked():
+                    #     if self._mip_check.isChecked():
+                    #         self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=2)
+                    #     else:
+                    #         self._display_buffer_upsampled = self._display_buffer_upsampled[:, :, self._slice_slider.value()]
+                    # else:
+                    #     if self._mip_check.isChecked():
+                    #         self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=0)
+                    #     else:
+                    #         self._display_buffer_upsampled = self._display_buffer_upsampled[self._slice_slider.value(), :, :]
+                    #
+                    # self.r_view.setImage(np.fft.fftshift(self._display_buffer_upsampled))
+
+                    # -----
 
                     # Grab motion vector
                     if not self._controller.grab_motion_vector(self._mot_buffer):  # Returns 0 if dequeue is successful
@@ -454,16 +458,14 @@ class MainWindow(QtWidgets.QMainWindow):
                             if self._recorded_n == 0:
                                 self._t_rec_start = time.time()
                             self._rec_button.setEnabled(False)
-                            # self._rec_img[:, :, :, self._recorded_n] = self._display_buffer
+                            self._fname_edit.setEnabled(False)
+                            self._rec_img[:, :, :, self._recorded_n] = self._display_buffer
                             self._rec_mot[:, self._recorded_n] = self._mot_buffer
-                            # ret, frame = self._avi_cap.read()
-                            # if ret:
-                            #     self._avi_writer.write(frame)
                             self._recorded_n += 1
-                            # print('Recorded frame', self._recorded_n, 'of', self._recording_n)
                         elif self._recorded_n == self._recording_n:  # Recording is finished, write the files
-                            print('Finished recording', self._fname_edit, 'in', time.time() - self._t_rec_start, 's')
+                            print('Finished recording', self._fname_edit.text(), 'in', time.time() - self._t_rec_start, 's')
                             self._rec_button.setEnabled(True)
+                            self._fname_edit.setEnabled(True)
                             np.save(self._fname_edit.text() + '_img', self._rec_img)
                             np.save(self._fname_edit.text() + '_mot', self._rec_mot)
                             self._recording_n = -1
@@ -511,6 +513,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._spatial_window3d = self._spatial_window3d.astype(np.float32).flatten()
         self._spectral_window3d = self._spectral_window3d.astype(np.float32).flatten()
 
+        self._spatial_window3d = np.ones(len(self._spatial_window3d)).astype(np.float32).flatten()
+        # self._spectral_window3d = np.ones(len(self._spectral_window3d)).astype(np.float32).flatten()
+
     def _define_scan_pattern(self):
         fovwidth = (NUMBER_OF_ALINES_PER_B - 1) * self._adist_spin.value()
         exp = self._exposure_percentage_spin.value()
@@ -543,9 +548,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event):
         self._timer.stop()
         self._controller.stop_scan()
-        self._avi_cap.release()
-        if self._avi_writer is not None:
-            self._avi_writer.release()
         # self._controller.stop_motion_output()
         event.accept()
 

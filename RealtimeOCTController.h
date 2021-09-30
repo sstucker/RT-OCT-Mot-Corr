@@ -351,7 +351,8 @@ protected:
 					}
 
 					// Compute background spectrum to be used with next frame while workers compute
-					memset(background_spectrum_new, 1, aline_size * sizeof(float));
+					memset(background_spectrum_new, 0, aline_size * sizeof(float));
+					
 					for (int i = 0; i < total_number_of_alines; i++)
 					{
 						for (int j = 0; j < aline_size; j++)

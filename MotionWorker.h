@@ -13,6 +13,7 @@
 #include "Utils.h"
 #include <Windows.h>
 #include "PhaseCorrelationPlan3D.h"
+#include "PhaseCorrelationPlanMIP3.h"
 #include <NIDAQmx.h>
 #include "SimpleKalmanFilter.h"
 #include <Eigen/Dense>
@@ -84,9 +85,12 @@ protected:
 	std::atomic_bool running;
 
 	CircAcqBuffer<fftwf_complex>* acq_buffer;
-	PhaseCorrelationPlanMIP3D phase_correlation_plan;
+	
+	PhaseCorrelationPlan3D phase_correlation_plan;
+	// PhaseCorrelationPlanMIP3 phase_correlation_plan;
 
 	int buffer_size;
+	int frame_size;
 
 	bool update_reference;
 	bool filters_enabled;
@@ -205,7 +209,10 @@ protected:
 							memcpy(daq_xyz_scale, msg.scale_xyz, 3 * sizeof(double));
 							fftwf_complex* mot_roi_buf = fftwf_alloc_complex(msg.input_dims[0] * msg.input_dims[1] * msg.input_dims[2]);
 							buffer_size = (msg.input_dims[0] * msg.upsample_factor) * (msg.input_dims[1] * msg.upsample_factor) * (msg.input_dims[2] * msg.upsample_factor);
-							phase_correlation_plan = PhaseCorrelationPlanMIP3D(msg.input_dims, msg.upsample_factor, msg.centroid_n_peak, msg.spectral_filter, msg.spatial_filter, msg.bidirectional);
+							frame_size = msg.input_dims[0] * msg.input_dims[1] * msg.input_dims[2];
+							
+							phase_correlation_plan = PhaseCorrelationPlan3D(msg.input_dims, msg.upsample_factor, msg.centroid_n_peak, msg.spectral_filter, msg.spatial_filter, msg.bidirectional);
+							// phase_correlation_plan = PhaseCorrelationPlanMIP3(msg.input_dims, msg.upsample_factor, msg.centroid_n_peak, msg.spectral_filter, msg.spatial_filter, msg.bidirectional);
 
 							filters_xyz = new SimpleKalmanFilter[3];
 							filter_input_xyz = new Eigen::VectorXd[3];
@@ -235,10 +242,12 @@ protected:
 			if (msg.flag & GrabCorrelogram)
 			{
 				memcpy(msg.grab_dst, phase_correlation_plan.get_R(), buffer_size * sizeof(fftwf_complex));
+				// memcpy(msg.grab_dst, phase_correlation_plan.get_R(2), (16 * 3) * (16 * 3) * sizeof(fftwf_complex));
 			}
 			if (msg.flag & GrabFrame)
 			{
 				memcpy(msg.grab_dst, phase_correlation_plan.get_tn(), buffer_size * sizeof(fftwf_complex));
+				// memcpy(msg.grab_dst, phase_correlation_plan.get_tn(2), (16 * 3) * (16 * 3) * sizeof(fftwf_complex));
 			}
 			if (msg.flag & UpdateReference)
 			{
@@ -276,8 +285,36 @@ protected:
 		while (main_running.load() == true)
 		{
 			recv_msg();
+
 			if (running.load())
 			{
+
+				if (update_reference)
+				{
+					int averaged = 0;
+					int to_average = 10;  // TODO argument of update reference
+					fftwf_complex* average_frame = fftwf_alloc_complex(frame_size);
+					memset(average_frame, 0, sizeof(fftwf_complex) * frame_size);
+					while (averaged < to_average)  // Calculate average
+					{
+						n_got = acq_buffer->lock_out_wait(acq_buffer->get_count(), &f);
+						if (n_got > -1)
+						{
+							for (int i = 0; i < frame_size; i++)
+							{
+								average_frame[i][0] += f[i][0] / to_average;
+								average_frame[i][1] += f[i][1] / to_average;
+							}
+							averaged += 1;
+						}
+						acq_buffer->release();
+					}
+					phase_correlation_plan.setReference(average_frame);
+					printf("Updated reference with average of %i frames\n", averaged + 1);
+					update_reference = false;  // Set flag back to 0
+					fftwf_free(average_frame);
+				}
+
 				n_got = acq_buffer->lock_out_wait(acq_buffer->get_count(), &f);
 				// printf("Wanted %i got %i\n", n_wanted, n_got);
 
@@ -296,41 +333,33 @@ protected:
 
 				if (n_got > -1)
 				{
-					if (update_reference)
+
+					phase_correlation_plan.getDisplacement(f, daq_xyz_out);
+
+					for (int i = 0; i < 3; i++)  // For x, y, z
 					{
-						phase_correlation_plan.setReference(f);
-						update_reference = false;  // Set flag back to 0
+						if (filters_enabled)
+						{
+							filter_input_xyz[i] << daq_xyz_out[i];  // Load algorithm output into Eigen matrix
+							filters_xyz[i].observeAndPredict(filter_input_xyz[i]);  // Kalman update and predict
+							daq_xyz_out[i] = filters_xyz[i].getState()[0];  // Get first state var, position
+						}
+						daq_xyz_out[i] = daq_xyz_out[i] * daq_xyz_scale[i];
 					}
-					else
+
+					int err = DAQmxWriteAnalogF64(motion_output_task, 1, true, -1, DAQmx_Val_GroupByChannel, daq_xyz_out, mot_samps_written, NULL);
+					if (err != 0)
 					{
-						phase_correlation_plan.getDisplacement(f, daq_xyz_out);
-
-						for (int i = 0; i < 3; i++)  // For x, y, z
-						{
-							if (filters_enabled)
-							{
-								filter_input_xyz[i] << daq_xyz_out[i];  // Load algorithm output into Eigen matrix
-								filters_xyz[i].observeAndPredict(filter_input_xyz[i]);  // Kalman update and predict
-								daq_xyz_out[i] = filters_xyz[i].getState()[0];  // Get first state var, position
-							}
-							daq_xyz_out[i] = daq_xyz_out[i] * daq_xyz_scale[i];
-						}
-
-						int err = DAQmxWriteAnalogF64(motion_output_task, 1, true, -1, DAQmx_Val_GroupByChannel, daq_xyz_out, mot_samps_written, NULL);
-						if (err != 0)
-						{
-							printf("DAQmx error writing to DAC:\n");
-							char* buf = new char[512];
-							DAQmxGetErrorString(err, buf, 512);
-							printf(buf);
-							printf("\n");
-							delete[] buf;
-						}
-
-						MotionVector v = { daq_xyz_out[0], daq_xyz_out[1], daq_xyz_out[2] };
-						output_queue->enqueue(v);
-
+						printf("DAQmx error writing to DAC:\n");
+						char* buf = new char[512];
+						DAQmxGetErrorString(err, buf, 512);
+						printf(buf);
+						printf("\n");
+						delete[] buf;
 					}
+
+					MotionVector v = { daq_xyz_out[0], daq_xyz_out[1], daq_xyz_out[2] };
+					output_queue->enqueue(v);
 
 					total += 1;
 

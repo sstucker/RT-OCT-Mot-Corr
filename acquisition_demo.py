@@ -74,11 +74,6 @@ while not scanning:
     scanning = controller.is_scanning()
 print('Scan started!')
 
-# f = np.empty(ALINE_SIZE * NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES).astype(np.complex64)
-# for i in range(1000):
-#     print(controller.grab_frame(f))
-#     time.sleep(1 / pattern.get_pattern_rate())
-
 
 FILENAME = r'D:\realtimeoct_acq\testing'
 ACQ_N = 5
@@ -89,8 +84,8 @@ if os.path.exists(FILENAME + '.RAW'):
 
 time.sleep(2)  # Galvo settling time
 
-controller.save_n(FILENAME, 2E9, ACQ_N)
-# controller.start_save(FILENAME, 2E9)
+# controller.save_n(FILENAME, 2E9, ACQ_N)
+controller.start_save(FILENAME, 2E9)
 
 time.sleep(int(1 / pattern.get_pattern_rate() * (ACQ_N * 2)))
 

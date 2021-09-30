@@ -63,6 +63,8 @@ protected:
 	float interp_y0;
 	float interp_y1;
 
+	float max;
+
 	inline void recv_msg()
 	{
 		ProcessingMessage msg;
@@ -105,6 +107,7 @@ protected:
 						spectral_buffer[msg.aline_size * i + j] = spectral_buffer[msg.aline_size * i + j] * msg.window_src[j];
 					}
 				}
+
 				// FFT into destination buffer
 				fftwf_execute_dft_r2c(*(msg.fftw_plan), spectral_buffer, spatial_buffer);
 
