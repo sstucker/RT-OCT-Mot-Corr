@@ -38,14 +38,14 @@ TRIGGER_GAIN = 4
 NUMBER_OF_IMAQ_BUFFERS = 8
 INTPDK = 0.305
 
-ROI_OFFSET = 20
+ROI_OFFSET = 80
 
 d3 = 16
 NUMBER_OF_ALINES_PER_B = d3
 NUMBER_OF_BLINES = d3
 ROI_SIZE = d3
 
-UPSAMPLE_FACTOR = 3
+UPSAMPLE_FACTOR = 2
 
 # REFRESH_RATE = 220  # hz
 
@@ -181,7 +181,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_layout.addRow(QtWidgets.QLabel("Seconds to record"), self._rec_sec_spin)
 
         self._fname_edit = QtWidgets.QLineEdit()
-        self._fname_edit.setText("output")
+        self._fname_edit.setText("D:/ahead_of_10_1_20/output")
         self._control_layout.addRow(QtWidgets.QLabel("Recording name"), self._fname_edit)
 
         self._rec_button = QtWidgets.QPushButton()
@@ -197,7 +197,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._adist_spin = QtWidgets.QDoubleSpinBox()
         self._adist_spin.setDecimals(4)
         self._adist_spin.setRange(0.00001, 0.1)
-        self._adist_spin.setValue(0.0015)
+        self._adist_spin.setValue(0.0020)
         self._adist_spin.setSingleStep(0.0001)
         self._control_layout.addRow(QtWidgets.QLabel("A-line spacing (mm)"), self._adist_spin)
         self._adist_spin.valueChanged.connect(self.set_scan_pattern)
@@ -257,15 +257,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._x_factor_spin = QtWidgets.QDoubleSpinBox()
         self._x_factor_spin.setRange(-5, 5)
-        self._x_factor_spin.setValue(-0.5)
-        self._x_factor_spin.setSingleStep(0.1)
+        self._x_factor_spin.setValue(0.3)
+        self._x_factor_spin.setDecimals(2)
+        self._x_factor_spin.setSingleStep(0.01)
         self._control_layout.addRow(QtWidgets.QLabel("X DAC scale factor"), self._x_factor_spin)
         self._x_factor_spin.valueChanged.connect(self._update_motion_parameters)
 
         self._y_factor_spin = QtWidgets.QDoubleSpinBox()
         self._y_factor_spin.setRange(-5, 5)
-        self._y_factor_spin.setValue(-0.5)
-        self._y_factor_spin.setSingleStep(0.1)
+        self._y_factor_spin.setValue(-0.3)
+        self._y_factor_spin.setDecimals(2)
+        self._y_factor_spin.setSingleStep(0.01)
         self._control_layout.addRow(QtWidgets.QLabel("Y DAC scale factor"), self._y_factor_spin)
         self._y_factor_spin.valueChanged.connect(self._update_motion_parameters)
 
@@ -275,6 +277,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self._z_factor_spin.setSingleStep(0.1)
         self._control_layout.addRow(QtWidgets.QLabel("Z DAC scale factor"), self._z_factor_spin)
         self._z_factor_spin.valueChanged.connect(self._update_motion_parameters)
+
+        self._x_offset_spin = QtWidgets.QDoubleSpinBox()
+        self._x_offset_spin.setRange(-5, 5)
+        self._x_offset_spin.setValue(0)
+        self._x_offset_spin.setDecimals(2)
+        self._x_offset_spin.setSingleStep(0.01)
+        self._control_layout.addRow(QtWidgets.QLabel("X shift"), self._x_offset_spin)
+        self._x_offset_spin.valueChanged.connect(self.set_scan_pattern)
+
+        self._y_offset_spin = QtWidgets.QDoubleSpinBox()
+        self._y_offset_spin.setRange(-5, 5)
+        self._y_offset_spin.setValue(0)
+        self._y_offset_spin.setDecimals(2)
+        self._y_offset_spin.setSingleStep(0.01)
+        self._control_layout.addRow(QtWidgets.QLabel("Y shift"), self._y_offset_spin)
+        self._y_offset_spin.valueChanged.connect(self.set_scan_pattern)
 
         self._d_spin = QtWidgets.QDoubleSpinBox()
         self._d_spin.setDecimals(3)
@@ -340,7 +358,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._recording_n = -1
         self._recorded_n = 0
 
-        self._t_rec_start = -1
+        self._t_rec_start = -1E9
 
         self._spectrum_buffer = np.empty(ALINE_SIZE, dtype=np.float32)
         self._grab_buffer = np.empty(ROI_SIZE * NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES, dtype=np.complex64)
@@ -353,7 +371,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._timer = QTimer()
 
     def _start_recording(self):
-        self._cvstream = CvStream(fps=20)
+        self._cvstream = CvStream(fps=18)
         self._recording_n = int(self._pat.get_pattern_rate() * self._rec_sec_spin.value())
         self._recorded_n = 0
         print('Allocating recording buffers...')
@@ -454,18 +472,21 @@ class MainWindow(QtWidgets.QMainWindow):
                         self.mot_x_plot.append_to_plot([self._mot_buffer[0]])
                         self.mot_y_plot.append_to_plot([self._mot_buffer[1]])
                         self.mot_z_plot.append_to_plot([self._mot_buffer[2]])
-                        if self._recorded_n < self._recording_n:  # If actively recording
+                        if self._recorded_n < self._recording_n and time.time() - self._t_rec_start < self._rec_sec_spin.value():  # If actively recording
                             if self._recorded_n == 0:
                                 self._t_rec_start = time.time()
                             self._rec_button.setEnabled(False)
                             self._fname_edit.setEnabled(False)
+                            self._rec_sec_spin.setEnabled(False)
                             self._rec_img[:, :, :, self._recorded_n] = self._display_buffer
                             self._rec_mot[:, self._recorded_n] = self._mot_buffer
                             self._recorded_n += 1
                         elif self._recorded_n == self._recording_n:  # Recording is finished, write the files
-                            print('Finished recording', self._fname_edit.text(), 'in', time.time() - self._t_rec_start, 's')
+                            elapsed = time.time() - self._t_rec_start
+                            print('Finished recording', self._recorded_n, 'frames to', self._fname_edit.text(), 'in', str(elapsed)[0:7], 's at', str(self._recorded_n / elapsed)[0:7], 'hz')
                             self._rec_button.setEnabled(True)
                             self._fname_edit.setEnabled(True)
+                            self._rec_sec_spin.setEnabled(True)
                             np.save(self._fname_edit.text() + '_img', self._rec_img)
                             np.save(self._fname_edit.text() + '_mot', self._rec_mot)
                             self._recording_n = -1
@@ -533,8 +554,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_scan_pattern(self):
         self._trigger_offset_label.setText('Trigger skew (' + str(self._trigger_offset_slider.value()) + ')')
-        self._xsig = self._pat.get_x() * 22
-        self._ysig = self._pat.get_y() * 18
+        self._xsig = (self._pat.get_x() + self._x_offset_spin.value()) * 22
+        self._ysig = (self._pat.get_y() + self._y_offset_spin.value()) * 22
         self._ltsig = np.roll(self._pat.get_line_trig() * TRIGGER_GAIN, self._trigger_offset_slider.value())
         self._ftsig = np.roll(self._pat.get_frame_trig() * TRIGGER_GAIN, self._trigger_offset_slider.value())
         # self._ftsig = np.zeros(len(self._pat.get_frame_trig()))

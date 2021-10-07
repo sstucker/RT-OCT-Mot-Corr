@@ -43,7 +43,9 @@ struct MotionMessage
 	float* spatial_filter;
 	float* spectral_filter;
 	fftwf_complex* grab_dst;  // Correlograms and frames are copied here for debugging and visualization
-	bool bidirectional;  // If true, the voxels of every other B-scan (2nd axis) is reversed
+	bool bidirectional;  // If true, the voxels of every other B-scan (2nd axis) is reversed prior to correlation TODO
+	bool velocity_mode;  // If true, frames are correlated with tn_1 rather than t0 to acquire velocity, and the output is taken to be the running sum
+	float pattern_period;  // Number of seconds between each frame for velocity calculation
 	double* filter_d;  // Proportion of decay of position to 0 between time steps. Value of 1 -> no decay
 	double* filter_g;  // Proportion of decay of velocity to 0 between time steps
 	double* filter_q;  // Kalman process noise covariance diag value
@@ -75,6 +77,7 @@ protected:
 	MotionResultsQueue* output_queue;
 	TaskHandle motion_output_task;
 
+	double* correlation_out;
 	double* daq_xyz_out;
 	double* daq_xyz_scale;
 	SimpleKalmanFilter* filters_xyz;
@@ -95,11 +98,11 @@ protected:
 	bool update_reference;
 	bool filters_enabled;
 
-	int initializeFilters(double* d, double* g, double* q, double* r)
+	int initializeFilters(double* d, double* g, double* q, double* r, double dt)
 	{
 		int n = 2; // N states: x, dx
-		int m = 1; // N measurements: 1 measurement on x
-		double dt = 1;  // Unit time step TODO variable?
+		// int m = 1; // N measurements: 1 measurement on x
+		int m = 2;  // 2 measurements on x and dx
 
 		// Construct a separate filter for each dimension, x, y and z
 		for (int i = 0; i < 3; i++)
@@ -116,14 +119,23 @@ protected:
 				 0,    g[i];
 
 			// Measurement matrix (Measuring on position)
-			H << 1, 0;
+			//H << 1, 0;
 
-			// Covariance matrices
+			// Measurement matrix (Measuring on position and velocity)
+			H << 1, 0,
+				 0, 1;
+
+
+			// Process noise covariance
 			Q << q[i], 0,
-				 0,    q[i];
+				 0,  q[i];
 
-			// Initial measurement covariance
-			R << r[i];
+			// Initial measurement covariance (Measuring on position)
+			// R << r[i];
+			
+			// Initial measurement covariance (Measuring on position and velocity)
+			R << r[i], 0,
+				 0, r[i];
 
 			// Initial P
 			P0 << 0, 0,
@@ -133,8 +145,9 @@ protected:
 			X0 << 0, 0;
 
 			filters_xyz[i] = SimpleKalmanFilter(A, H, Q, R, X0, P0);
-			filter_input_xyz[i] = Eigen::VectorXd(1);
-
+			
+			// filter_input_xyz[i] = Eigen::VectorXd(1);  // Measuring on x
+			filter_input_xyz[i] = Eigen::VectorXd(2);  // Measuring on x, dx
 		}
 		return 0;
 	}
@@ -177,6 +190,8 @@ protected:
 			return err;
 		}
 
+		correlation_out = new double[6];
+
 		daq_xyz_out = new double[3];  // Buffer for samples before they are written
 		daq_xyz_scale = new double[3]; // Scale factors for DAC channels
 		mot_samps_written = new int32[3];  // TODO multi-channel
@@ -216,7 +231,7 @@ protected:
 
 							filters_xyz = new SimpleKalmanFilter[3];
 							filter_input_xyz = new Eigen::VectorXd[3];
-							initializeFilters(msg.filter_d, msg.filter_g, msg.filter_q, msg.filter_r);
+							initializeFilters(msg.filter_d, msg.filter_g, msg.filter_q, msg.filter_r, 1.0);  // TODO dt based on pattern rate
 
 							filters_enabled = true;  // todo parameter
 
@@ -237,7 +252,7 @@ protected:
 				phase_correlation_plan.setSpatialFilter(msg.spatial_filter);
 				phase_correlation_plan.setCentroidN(msg.centroid_n_peak);
 				phase_correlation_plan.setBidirectional(msg.bidirectional);
-				initializeFilters(msg.filter_d, msg.filter_g, msg.filter_q, msg.filter_r);
+				initializeFilters(msg.filter_d, msg.filter_g, msg.filter_q, msg.filter_r, 1.0);
 			}
 			if (msg.flag & GrabCorrelogram)
 			{
@@ -334,13 +349,17 @@ protected:
 				if (n_got > -1)
 				{
 
-					phase_correlation_plan.getDisplacement(f, daq_xyz_out);
+					// phase_correlation_plan.getDisplacement(f, daq_xyz_out);
+
+					phase_correlation_plan.getTotalAndIncrementalDisplacement(f, correlation_out);
+					// printf("correlation_out = [%f, %f, %f, %f, %f, %f]\n", correlation_out[0], correlation_out[1], correlation_out[2], correlation_out[3], correlation_out[4], correlation_out[5]);
 
 					for (int i = 0; i < 3; i++)  // For x, y, z
 					{
 						if (filters_enabled)
 						{
-							filter_input_xyz[i] << daq_xyz_out[i];  // Load algorithm output into Eigen matrix
+							// filter_input_xyz[i] << correlation_out[i];
+							filter_input_xyz[i] << correlation_out[i], correlation_out[3 + i];  // Load algorithm output into Eigen matrix
 							filters_xyz[i].observeAndPredict(filter_input_xyz[i]);  // Kalman update and predict
 							daq_xyz_out[i] = filters_xyz[i].getState()[0];  // Get first state var, position
 						}
@@ -488,6 +507,7 @@ public:
 
 	~MotionWorker()
 	{
+		delete[] correlation_out;
 		delete[] daq_xyz_out;
 		delete[] daq_xyz_scale;
 		delete[] mot_samps_written;
