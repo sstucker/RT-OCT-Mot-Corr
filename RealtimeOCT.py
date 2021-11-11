@@ -47,27 +47,28 @@ lib.RTOCT_close.argtypes = [ControllerHandle]
 
 # -- MOTION QUANT -------------------------------------
 
-lib.RTOCT_start_motion_output.argtypes = [ControllerHandle, c_int_p, c_double_p, c.c_int, c.c_int, c_float_p, c_float_p, c.c_bool, c_double_p, c_double_p, c_double_p, c_double_p]
-lib.RTOCT_stop_motion_output.argtypes = [ControllerHandle]
+lib.RTOCT_start_motion_quant.argtypes = [ControllerHandle, c_int_p, c.c_int, c.c_int, c_float_p, c_float_p, c.c_bool, c_double_p, c_double_p, c_double_p, c_double_p, c_double_p, c_double_p, c.c_double]
+lib.RTOCT_stop_motion_quant.argtypes = [ControllerHandle]
+lib.RTOCT_configure_motion_output.argtypes = [ControllerHandle, c.c_char_p, c.c_char_p, c.c_char_p, c_double_p, c.c_bool]
 lib.RTOCT_update_motion_reference.argtypes = [ControllerHandle]
 lib.RTOCT_grab_motion_correlogram.argtypes = [ControllerHandle, c_complex64_p]
 lib.RTOCT_grab_motion_frame.argtypes = [ControllerHandle, c_complex64_p]
-lib.RTOCT_update_motion_parameters.argtypes = [ControllerHandle, c_double_p, c.c_int, c_float_p, c_float_p, c.c_bool, c_double_p, c_double_p, c_double_p, c_double_p]
+lib.RTOCT_update_motion_parameters.argtypes = [ControllerHandle, c.c_int, c_float_p, c_float_p, c.c_bool, c_double_p, c_double_p, c_double_p, c_double_p, c_double_p, c_double_p, c.c_double]
 
 lib.RTOCT_grab_motion_vector.restype = c.c_int
 lib.RTOCT_grab_motion_vector.argtypes = [ControllerHandle, c_double_p]
 
-lib.PCPLAN3D_create.restype = PlanHandle
-
-lib.PCPLAN3D_close.argtypes = [PlanHandle]
-
-lib.PCPLAN3D_set_reference.argtypes = (PlanHandle, c_complex64_p)
-lib.PCPLAN3D_get_displacement.argtypes = (PlanHandle, c_complex64_p, c_double_p)
-
-lib.PCPLAN3D_get_r.argtypes = (PlanHandle, c_complex64_p)
-lib.PCPLAN3D_get_R.argtypes = (PlanHandle, c_complex64_p)
-lib.PCPLAN3D_get_t0.argtypes = (PlanHandle, c_complex64_p)
-lib.PCPLAN3D_get_tn.argtypes = (PlanHandle, c_complex64_p)
+# lib.PCPLAN3D_create.restype = PlanHandle
+#
+# lib.PCPLAN3D_close.argtypes = [PlanHandle]
+#
+# lib.PCPLAN3D_set_reference.argtypes = (PlanHandle, c_complex64_p)
+# lib.PCPLAN3D_get_displacement.argtypes = (PlanHandle, c_complex64_p, c_double_p)
+#
+# lib.PCPLAN3D_get_r.argtypes = (PlanHandle, c_complex64_p)
+# lib.PCPLAN3D_get_R.argtypes = (PlanHandle, c_complex64_p)
+# lib.PCPLAN3D_get_t0.argtypes = (PlanHandle, c_complex64_p)
+# lib.PCPLAN3D_get_tn.argtypes = (PlanHandle, c_complex64_p)
 
 
 class RealtimeOCTController:
@@ -164,17 +165,21 @@ class RealtimeOCTController:
 
     # -- MOTION TRACKING ----------------------------------------------------------------------------------------
 
-    def start_motion_output(self, input_dims, scale_xyz, upsampling_factor, npeak, spectral_window3d, spatial_window3d, filter_d, filter_g, filter_q, filter_r, bidirectional=False):
-        lib.RTOCT_start_motion_output(self._handle, input_dims, scale_xyz, upsampling_factor, npeak, spectral_window3d, spatial_window3d, bidirectional, filter_d, filter_g, filter_q, filter_r)
+    def start_motion_quant(self, input_dims, upsampling_factor, npeak, spectral_window3d, spatial_window3d, filter_e, filter_f, filter_g, filter_q, filter_r1, filter_r2, dt, n_lag, bidirectional=False):
+        lib.RTOCT_start_motion_quant(self._handle, input_dims, upsampling_factor, npeak, spectral_window3d, spatial_window3d, bidirectional, filter_e, filter_f, filter_g, filter_q, filter_r1, filter_r2, dt, n_lag)
 
-    def stop_motion_output(self):
-        lib.RTOCT_stop_motion_output(self._handle)
+    def stop_motion_quant(self):
+        lib.RTOCT_stop_motion_quant(self._handle)
+
+    def configure_motion_output(self, ao_ch_dx, ao_ch_dy, ao_ch_dz, scale_xyz, enabled):
+        lib.RTOCT_configure_motion_output(self._handle, ao_ch_dx.encode('utf-8'), ao_ch_dy.encode('utf-8'),
+                                          ao_ch_dz.encode('utf-8'), scale_xyz, enabled)
 
     def update_motion_reference(self):
         lib.RTOCT_update_motion_reference(self._handle)
 
-    def update_motion_parameters(self, scale_xyz, npeak, spectral_window3d, spatial_window3d, filter_d, filter_g, filter_q, filter_r, bidirectional=False):
-        lib.RTOCT_update_motion_parameters(self._handle, scale_xyz, npeak, spectral_window3d, spatial_window3d, bidirectional, filter_d, filter_g, filter_q, filter_r)
+    def update_motion_parameters(self, npeak, spectral_window3d, spatial_window3d, filter_e, filter_f, filter_g, filter_q, filter_r1, filter_r2, dt, bidirectional=False):
+        lib.RTOCT_update_motion_parameters(self._handle, npeak, spectral_window3d, spatial_window3d, bidirectional, filter_e, filter_f, filter_g, filter_q, filter_r1, filter_r2, dt)
 
     def grab_motion_correlogram(self, out):
         lib.RTOCT_grab_motion_correlogram(self._handle, out)

@@ -18,7 +18,7 @@ class PhaseCorrelationPlan3D
         bool reference_acquired;  // true if a reference frame exists
 
         fftwf_complex* t0;  // Reference frame ROI for phase corr
-        fftwf_complex* tn_1;  // Last frame that was acquired. Pointers swapped between this and tn
+        fftwf_complex** tn_n;  // Array of frames stored so that velocity can be calculated
         fftwf_complex* tn;  // Delta frame ROI for phase corr
         fftwf_complex* r; // Phase correlation output
         fftwf_complex* R;  // Spatial correlogram result of inv FFT
@@ -60,6 +60,9 @@ class PhaseCorrelationPlan3D
         double** fftshift;  // LUT of pixel shifts
 
         bool bidirectional;
+
+        int n_lag;
+        long lag_count;
 
         template <class T>
         inline T* indexBuffer(T* buf, int i, int j, int k)
@@ -246,7 +249,7 @@ class PhaseCorrelationPlan3D
             memset(og_dims, 0, 3 * sizeof(int));
         }
 
-        PhaseCorrelationPlan3D(int* input_dims, int upsample, int npeak_centroid, float* spectral_filter_3d, float* spatial_filter_3d, bool bidirectional)
+        PhaseCorrelationPlan3D(int* input_dims, int upsample, int npeak_centroid, float* spectral_filter_3d, float* spatial_filter_3d, bool bidirectional, int n_lag)
         {
 
             reference_acquired = false;
@@ -282,15 +285,23 @@ class PhaseCorrelationPlan3D
 
             t0 = fftwf_alloc_complex(fsize);
             tn = fftwf_alloc_complex(fsize);
-            tn_1 = fftwf_alloc_complex(fsize);
+            
+            this->n_lag = n_lag;
+            
+            tn_n = new fftwf_complex*[n_lag + 1];
+            for (int i = 0; i < n_lag + 1; i++)
+            {
+                tn_n[i] = fftwf_alloc_complex(fsize);
+            }
+
             r = fftwf_alloc_complex(fsize);
             R = fftwf_alloc_complex(fsize);
 
             fftwf_import_wisdom_from_filename("phasecorr_fftw_wisdom.txt");
 
             // printf("Planning FFTWF transform...\n");
-            pc_roi_fft_plan = fftwf_plan_dft(3, dims, t0, t0, FFTW_FORWARD, FFTW_PATIENT);
-            pc_r_fft_plan = fftwf_plan_dft(3, dims, r, R, FFTW_BACKWARD, FFTW_PATIENT);
+            pc_roi_fft_plan = fftwf_plan_dft(3, dims, t0, t0, FFTW_FORWARD, FFTW_EXHAUSTIVE);
+            pc_r_fft_plan = fftwf_plan_dft(3, dims, r, R, FFTW_BACKWARD, FFTW_EXHAUSTIVE);
 
             fftwf_export_wisdom_to_filename("phasecorr_fftw_wisdom.txt");
 
@@ -336,12 +347,14 @@ class PhaseCorrelationPlan3D
         void setReference(fftwf_complex* t0_new)
         {
             populateZeroPaddedBuffer(t0, t0_new);
-            populateZeroPaddedBuffer(tn_1, t0_new);
-            reference_acquired = true;
             applyWindow3D(t0, spatial_filter);  // Multiply buffer by apod window prior to FFT
-            applyWindow3D(tn_1, spatial_filter);
             fftwf_execute_dft(pc_roi_fft_plan, t0, t0);  // Execute in place FFT
-            fftwf_execute_dft(pc_roi_fft_plan, tn_1, tn_1);
+            for (int i = 0; i < n_lag + 1; i++)  // Fill buffer with reference frames
+            {
+                memcpy(tn_n[i], t0, fsize * sizeof(fftwf_complex));
+            }
+            lag_count = 0;
+            reference_acquired = true;
         }
 
         void getDisplacement(fftwf_complex* frame, double* output)
@@ -364,18 +377,28 @@ class PhaseCorrelationPlan3D
             // Returns displacement of frame with t0 and with tn_1
             if (reference_acquired) // Can only get displacement if t0 (and tn_1) has been acquired
             {
-                // Pointer swap tn <--> tn_1
-                fftwf_complex* tmp = tn_1;
-                tn_1 = tn;  // tn_1 is last tn
-                tn = tmp;  // tn is now tn_n-2 and ready to be overwritten
 
-                populateZeroPaddedBuffer(tn, frame);
-                applyWindow3D(tn, spatial_filter);  // Multiply buffer by apod window prior to FFT
-                fftwf_execute_dft(pc_roi_fft_plan, tn, tn);  // Execute in place FFT
-                
-                //phaseCorr(output, tn, t0);  // Total displacement
-                memset(output, 0, 3 * sizeof(double));
-                phaseCorr(output + 3, tn, tn_1);  // Incremental displacement
+                int i_dt = mod(lag_count, n_lag + 1);
+
+                /*
+                printf("t = %i\n", lag_count);
+                printf("Put current frame into buffer %i\n", i_dt);
+                printf("Correlating with buffer %i\n", mod(lag_count - n_lag, n_lag + 1));
+                */
+
+                populateZeroPaddedBuffer(tn_n[i_dt], frame);  // Overwrite frame
+                applyWindow3D(tn_n[i_dt], spatial_filter);
+                fftwf_execute_dft(pc_roi_fft_plan, tn_n[i_dt], tn_n[i_dt]);
+
+                phaseCorr(output, tn_n[i_dt], t0);  // Total displacement
+                phaseCorr(output + 3, tn_n[i_dt], tn_n[mod(lag_count - n_lag, n_lag + 1)]);  // Incremental displacement
+
+                for (int i = 0; i < 3; i++)
+                {
+                    output[3 + i] /= n_lag;  // Normalize back to time unit
+                }
+
+                lag_count += 1;
             }
         }
 
@@ -401,11 +424,6 @@ class PhaseCorrelationPlan3D
             return tn;
         }
 
-        fftwf_complex* get_tn_1()
-        {
-            return tn_1;
-        }
-
         fftwf_complex* get_t0()
         {
             return t0;
@@ -413,6 +431,7 @@ class PhaseCorrelationPlan3D
 
 		~PhaseCorrelationPlan3D()
 		{
+            // delete[] tn_n;
             // delete[] dims;
             // delete[] og_dims;
             // delete[] spatial_filter;

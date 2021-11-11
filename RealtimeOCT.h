@@ -11,7 +11,6 @@
 #include "fftw3.h"
 
 
-
 extern "C"
 {
 
@@ -90,21 +89,29 @@ extern "C"
 
 	// -- MOTION QUANTIFICATION -------------------------------
 
-	__declspec(dllexport) void RTOCT_start_motion_output(RealtimeOCTController* controller, int* input_dims, double* scale_xyz, int upsample_factor, int centroid_n_peak,
-														 float* spectral_filter, float* spatial_filter, bool bidirectional, double* filter_d, double* filter_g, double* filter_q, double* filter_r)
+	__declspec(dllexport) void RTOCT_start_motion_quant(RealtimeOCTController* controller, int* input_dims, int upsample_factor, int centroid_n_peak,
+														 float* spectral_filter, float* spatial_filter, bool bidirectional, double* filter_e, double* filter_f, double* filter_g,
+														 double* filter_q, double* filter_r1, double* filter_r2, double dt, int n_lag)
 	{
-		controller->start_motion_output(input_dims, scale_xyz, upsample_factor, centroid_n_peak, spectral_filter, spatial_filter, bidirectional, filter_d, filter_g, filter_q, filter_r);
+		controller->start_motion_quant(input_dims, upsample_factor, centroid_n_peak, spectral_filter, spatial_filter, bidirectional, filter_e, filter_f, filter_g, filter_q, filter_r1, filter_r2, dt, n_lag);
 	}
 
-	__declspec(dllexport) void RTOCT_stop_motion_output(RealtimeOCTController* controller)
+	__declspec(dllexport) void RTOCT_stop_motion_quant(RealtimeOCTController* controller)
 	{
-		controller->stop_motion_output();
+		controller->stop_motion_quant();
 	}
 
-	__declspec(dllexport) void RTOCT_update_motion_parameters(RealtimeOCTController* controller, double* scale_xyz, int centroid_n_peak, float* spectral_filter, float* spatial_filter, bool bidirectional,
-															  double* filter_d, double* filter_g, double* filter_q, double* filter_r)
+	__declspec(dllexport) void RTOCT_configure_motion_output(RealtimeOCTController* controller, const char* ao_dx_ch, const char* ao_dy_ch, const char* ao_dz_ch,
+														     double* scale_xyz, bool enabled)
 	{
-		controller->update_motion_parameters(scale_xyz, centroid_n_peak, spectral_filter, spatial_filter, bidirectional, filter_d, filter_g, filter_q, filter_r);
+		controller->configure_motion_output(ao_dx_ch, ao_dy_ch, ao_dz_ch, scale_xyz, enabled);
+	}
+
+	__declspec(dllexport) void RTOCT_update_motion_parameters(RealtimeOCTController* controller, int centroid_n_peak, float* spectral_filter, float* spatial_filter, bool bidirectional,
+		double* filter_e, double* filter_f, double* filter_g,
+		double* filter_q, double* filter_r1, double* filter_r2, double dt)
+	{
+		controller->update_motion_parameters(centroid_n_peak, spectral_filter, spatial_filter, bidirectional, filter_e, filter_f, filter_g, filter_q, filter_r1, filter_r2, dt);
 	}
 
 	__declspec(dllexport) void RTOCT_update_motion_reference(RealtimeOCTController* controller)
@@ -127,11 +134,13 @@ extern "C"
 		return controller->grab_motion_vector(out);
 	}
 
+	/*
+
 	// -- PHASE CORR PLAN -------------------------------------
 
-	__declspec(dllexport) PhaseCorrelationPlan3D* PCPLAN3D_create(int* input_dims, int upsample, int npeak_centroid, float* spectral_filter_3d, float* spatial_filter_3d, bool bidirectional)
+	__declspec(dllexport) PhaseCorrelationPlan3D* PCPLAN3D_create(int* input_dims, int upsample, int npeak_centroid, float* spectral_filter_3d, float* spatial_filter_3d, bool bidirectional, int n_lag)
 	{
-		PhaseCorrelationPlan3D* plan = new PhaseCorrelationPlan3D(input_dims, upsample, npeak_centroid, spectral_filter_3d, spatial_filter_3d, bidirectional);
+		PhaseCorrelationPlan3D* plan = new PhaseCorrelationPlan3D(input_dims, upsample, npeak_centroid, spectral_filter_3d, spatial_filter_3d, bidirectional, n_lag);
 		return plan;
 	}
 
@@ -173,5 +182,7 @@ extern "C"
 		fftwf_complex* f = plan->get_t0();
 		memcpy(out, f, plan->get_frame_size() * sizeof(fftwf_complex));
 	}
+
+	*/
 
 }

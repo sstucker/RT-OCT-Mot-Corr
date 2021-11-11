@@ -125,7 +125,7 @@ protected:
 			processing_worker_pool[i]->configure(aline_size, alines_per_worker);
 		}
 	}
-	 
+
 	inline void terminate_workers()  // Called from ScanStop
 	{
 		for (int i = 0; i < n_process_workers; i++)
@@ -151,7 +151,7 @@ protected:
 
 		fftwf_import_wisdom_from_filename("C:/Users/OCT/Dev/RealtimeOCT/octcontroller_fftw_wisdom.txt");
 
-		fftw_plan = fftwf_plan_many_dft_r2c(1, n, alines_per_worker, dummy_in, inembed, istride, idist, dummy_out, onembed, ostride, odist, FFTW_PATIENT);
+		fftw_plan = fftwf_plan_many_dft_r2c(1, n, alines_per_worker, dummy_in, inembed, istride, idist, dummy_out, onembed, ostride, odist, FFTW_EXHAUSTIVE);
 
 		fftwf_export_wisdom_to_filename("C:/Users/OCT/Dev/RealtimeOCT/octcontroller_fftw_wisdom.txt");
 
@@ -191,14 +191,14 @@ protected:
 				{
 					printf("Cannot update scan pattern: no scan task configured.\n");
 				}
-				
+
 			}
 			if (msg.flag & UpdateProcessing)
 			{
 				if (!file_stream_worker->is_streaming() && config_ready.load())
 				{
 					processing_ready.store(false);
-					
+
 					interpdk_plan = WavenumberInterpolationPlan(aline_size, msg.intpdk);
 					spectral_window = new float[aline_size];
 					memcpy(spectral_window, msg.window, aline_size * sizeof(float));
@@ -249,6 +249,8 @@ protected:
 
 						alines_per_worker = total_number_of_alines / n_process_workers;
 
+						printf("Spawning %i threads each processing %i A-lines\n", n_process_workers, alines_per_worker);
+
 						save_stamp = false;  // TODO parameter
 
 						// Allocate background spectrum
@@ -270,7 +272,7 @@ protected:
 					{
 						printf("Config failed. Cannot open hardware interface!\n");
 					}
-					
+
 				}
 				else
 				{
@@ -281,9 +283,9 @@ protected:
 			{
 				if (config_ready.load() && processing_ready.load() && scan_ready.load())
 				{
-					
+
 					launch_workers();
-					
+
 					if (!hardware_interface.start_scan())
 					{
 						printf("Hardware started scanning successfully.\n");
@@ -334,9 +336,9 @@ protected:
 			if (acquiring.load())
 			{
 				acquired_buffer_number = hardware_interface.examine_imaq_buffer(&raw_frame_addr, cumulative_frame_number);
-				
+
 				if ((raw_frame_addr != NULL) && (acquired_buffer_number > -1))
-				{					    
+				{
 					// printf("Acq buf num %i\n", acquired_buffer_number);
 					output_addr = output_buffer->lock_out_head();
 
@@ -352,7 +354,7 @@ protected:
 
 					// Compute background spectrum to be used with next frame while workers compute
 					memset(background_spectrum_new, 0, aline_size * sizeof(float));
-					
+
 					for (int i = 0; i < total_number_of_alines; i++)
 					{
 						for (int j = 0; j < aline_size; j++)
@@ -408,7 +410,7 @@ public:
 		config_ready = ATOMIC_VAR_INIT(false);
 		processing_ready = ATOMIC_VAR_INIT(false);
 		scan_ready = ATOMIC_VAR_INIT(false);
-		acquiring  = ATOMIC_VAR_INIT(false);
+		acquiring = ATOMIC_VAR_INIT(false);
 		main_running = ATOMIC_VAR_INIT(false);
 
 		// TODO initialize properties
@@ -486,7 +488,7 @@ public:
 		msg.scan_x = x;
 		msg.scan_y = y;
 		msg.scan_line_trig = linetrigger;
-		msg.scan_frame_trig = frametrigger; 
+		msg.scan_frame_trig = frametrigger;
 		msg.scan_n = n;
 		msg_queue->enqueue(msg);
 	}
@@ -554,25 +556,33 @@ public:
 
 	// -- MOTION QUANT ---------------------
 
-	void start_motion_output(int* input_dims, double* scale_xyz, int upsample_factor, int centroid_n_peak, float* spectral_filter, float* spatial_filter, bool bidirectional,
-		                     double* filter_d, double* filter_g, double* filter_q, double* filter_r)
+	void start_motion_quant(int* input_dims, int upsample_factor, int centroid_n_peak, float* spectral_filter, float* spatial_filter, bool bidirectional,
+		double* filter_e, double* filter_f, double* filter_g, double* filter_q, double* filter_r1, double* filter_r2, double dt, int n_lag)
 	{
-		motion_worker->start(spatial_aline_size, output_buffer, upsample_factor, input_dims, scale_xyz, centroid_n_peak, spectral_filter, spatial_filter, bidirectional, filter_d, filter_g, filter_q, filter_r);
+		motion_worker->start(spatial_aline_size, output_buffer, upsample_factor, input_dims, centroid_n_peak, spectral_filter, spatial_filter, bidirectional,
+			filter_e, filter_f, filter_g, filter_q, filter_r1, filter_r2, dt, n_lag);
 	}
 
-	void stop_motion_output()
+	void stop_motion_quant()
 	{
 		motion_worker->stop();
 	}
+
+	void configure_motion_output(const char* ao_dx_ch, const char* ao_dy_ch, const char* ao_dz_ch, double* scale_xyz, bool enabled)
+	{
+		motion_worker->configureOutput(ao_dx_ch, ao_dy_ch, ao_dz_ch, scale_xyz, enabled);
+	}
+
 
 	void update_motion_reference()
 	{
 		motion_worker->updateReference();
 	}
 
-	void update_motion_parameters(double* scale_xyz, int centroid_n_peak, float* spectral_filter, float* spatial_filter, bool bidirectional, double* filter_d, double* filter_g, double* filter_q, double* filter_r)
+	void update_motion_parameters(int centroid_n_peak, float* spectral_filter, float* spatial_filter, bool bidirectional,
+		double* filter_e, double* filter_f, double* filter_g, double* filter_q, double* filter_r1, double* filter_r2, double dt)
 	{
-		motion_worker->updateParameters(scale_xyz, centroid_n_peak, spectral_filter, spatial_filter, bidirectional, filter_d, filter_g, filter_q, filter_r);
+		motion_worker->updateParameters(centroid_n_peak, spectral_filter, spatial_filter, bidirectional, filter_e, filter_f, filter_g, filter_q, filter_r1, filter_r2, dt);
 	}
 
 	void grab_motion_correlogram(fftwf_complex* out)

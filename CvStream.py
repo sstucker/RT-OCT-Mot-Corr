@@ -94,12 +94,12 @@ class CvStream:
 if __name__ == '__main__':
 
     stream = CvStream(fps=20)
-    print('Streaming 30 seconds of video to cvstream_demo.avi...')
+    print('Streaming 10 seconds of video to cvstream_demo.avi...')
     # stream.capture_n_frames('cvstream_demo', 20 * 30)
-    stream.capture_n_seconds('cvstream_demo', 30)
+    # stream.capture_n_seconds('cvstream_demo', 30)
 
-    # stream.start('cvstream_demo')
-    time.sleep(30)
-    # stream.stop()
+    stream.start('cvstream_demo')
+    time.sleep(10)
+    stream.stop()
 
     print('Finishing up...')

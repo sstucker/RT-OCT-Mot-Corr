@@ -32,27 +32,32 @@ AO_Y = 'Dev1/ao2'
 AO_LT = 'Dev1/ao0'
 AO_FT = 'Dev1/ao3'
 
+AO_DX = 'Dev1/ao4'
+AO_DY = 'Dev1/ao5'
+AO_DZ = 'Dev1/ao6'
+
 ALINE_SIZE = 2048
 PI = np.pi
 TRIGGER_GAIN = 4
-NUMBER_OF_IMAQ_BUFFERS = 8
+NUMBER_OF_IMAQ_BUFFERS = 16
 INTPDK = 0.305
 
-ROI_OFFSET = 80
+ROI_OFFSET = 60
 
 d3 = 16
 NUMBER_OF_ALINES_PER_B = d3
 NUMBER_OF_BLINES = d3
 ROI_SIZE = d3
 
+N_LAG = 2
 UPSAMPLE_FACTOR = 2
 
-# REFRESH_RATE = 220  # hz
+REFRESH_RATE = 197.6  # hz
+WIN_LEN = 128
 
 ASYNC_WAIT_DEBUG = 0
 
-PLOT_RANGE = 4
-
+PLOT_RANGE = 6
 
 def reshape_unidirectional_frame(A, z, x, b, dtype=np.complex64):
     """
@@ -132,23 +137,40 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.tn_view = OCTViewer(title='Frame at dt')
         self.r_view = OCTViewer(title='Correlogram')
-        self.bg_plot = SpectrumPlotWidget(title='Average raw spectrum')
+        # self.bg_plot = SpectrumPlotWidget(title='Average raw spectrum')
 
-        self.mot_x_plot = RunningPlotWidget(window_length=128, miny=-PLOT_RANGE, maxy=PLOT_RANGE, title='x', legend=['x'])
-        self.mot_y_plot = RunningPlotWidget(window_length=128, miny=-PLOT_RANGE, maxy=PLOT_RANGE, title='y', legend=['y'])
-        self.mot_z_plot = RunningPlotWidget(window_length=128, miny=-PLOT_RANGE, maxy=PLOT_RANGE, title='z', legend=['z'])
+        plt_x = np.arange(0, WIN_LEN) * (1 / REFRESH_RATE)
+
+        self.mot_x_plot = RunningPlotWidget(window_length=WIN_LEN, miny=-PLOT_RANGE, maxy=PLOT_RANGE, title='x', legend=['x'], labels={'left': 'px', 'bottom': 'Time (s)'}, x=plt_x)
+        self.mot_y_plot = RunningPlotWidget(window_length=WIN_LEN, miny=-PLOT_RANGE, maxy=PLOT_RANGE, title='y', legend=['y'], labels={'left': 'px', 'bottom': 'Time (s)'}, x=plt_x)
+        # self.mot_z_plot = RunningPlotWidget(window_length=WIN_LEN, miny=-PLOT_RANGE, maxy=PLOT_RANGE, title='z', legend=['z'], labels={'left': 'px', 'bottom': 'Time (s)'}, x=plt_x)
+
+        self.mot_dx_plot = RunningPlotWidget(window_length=WIN_LEN, miny=-PLOT_RANGE / 2, maxy=PLOT_RANGE / 2, title='dx', legend=['dx'], labels={'left': 'px/frame', 'bottom': 'Time (s)'}, x=plt_x)
+        self.mot_dy_plot = RunningPlotWidget(window_length=WIN_LEN, miny=-PLOT_RANGE / 2, maxy=PLOT_RANGE / 2, title='dy', legend=['dy'], labels={'left': 'px/frame', 'bottom': 'Time (s)'}, x=plt_x)
+        # self.mot_dz_plot = RunningPlotWidget(window_length=WIN_LEN, miny=-PLOT_RANGE / 2, maxy=PLOT_RANGE / 2, title='dz', legend=['dz'], labels={'left': 'px', 'bottom': 'Time (s)'}, x=plt_x)
+
+        self.mot_x_output_plot = RunningPlotWidget(window_length=WIN_LEN, miny=-PLOT_RANGE / 4, maxy=PLOT_RANGE / 4, title='x output', legend=['x'], labels={'left': 'V', 'bottom': 'Time (s)'}, x=plt_x)
+        self.mot_y_output_plot = RunningPlotWidget(window_length=WIN_LEN, miny=-PLOT_RANGE / 4, maxy=PLOT_RANGE / 4, title='y output', legend=['y'], labels={'left': 'V', 'bottom': 'Time (s)'}, x=plt_x)
+        # self.mot_z_output_plot = RunningPlotWidget(window_length=WIN_LEN, miny=-PLOT_RANGE / 4, maxy=PLOT_RANGE / 4, title='z output', legend=['z'], labels={'left': 'V', 'bottom': 'Time (s)'}, x=plt_x)
 
         self.mainlayout = QtWidgets.QGridLayout()
 
-        self.mainlayout.addWidget(self.r_view, 0, 1, 1, 1)
-        self.mainlayout.addWidget(self.tn_view, 0, 2, 1, 1)
+        self.mainlayout.addWidget(self.r_view, 0, 1, 2, 1)
+        self.mainlayout.addWidget(self.tn_view, 0, 2, 2, 1)
 
-        self.mainlayout.addWidget(self.bg_plot, 0, 3, 1, 1)
+        # self.mainlayout.addWidget(self.bg_plot, 0, 3, 2, 1)
 
-        self.mainlayout.addWidget(self.mot_x_plot, 1, 1, 1, 1)
-        self.mainlayout.addWidget(self.mot_y_plot, 1, 2, 1, 1)
+        self.mainlayout.addWidget(self.mot_x_plot, 2, 1, 1, 1)
+        self.mainlayout.addWidget(self.mot_y_plot, 2, 2, 1, 1)
+        # self.mainlayout.addWidget(self.mot_z_plot, 2, 3, 1, 1)
 
-        self.mainlayout.addWidget(self.mot_z_plot, 1, 3, 1, 1)
+        self.mainlayout.addWidget(self.mot_dx_plot, 3, 1, 1, 1)
+        self.mainlayout.addWidget(self.mot_dy_plot, 3, 2, 1, 1)
+        # self.mainlayout.addWidget(self.mot_dz_plot, 3, 3, 1, 1)
+
+        self.mainlayout.addWidget(self.mot_x_output_plot, 4, 1, 1, 1)
+        self.mainlayout.addWidget(self.mot_y_output_plot, 4, 2, 1, 1)
+        # self.mainlayout.addWidget(self.mot_z_output_plot, 4, 3, 1, 1)
 
         # Controls ----
 
@@ -181,23 +203,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_layout.addRow(QtWidgets.QLabel("Seconds to record"), self._rec_sec_spin)
 
         self._fname_edit = QtWidgets.QLineEdit()
-        self._fname_edit.setText("D:/ahead_of_10_1_20/output")
+        self._fname_edit.setText("D:\in_vivo_ahead_of_11_10_21\output")
         self._control_layout.addRow(QtWidgets.QLabel("Recording name"), self._fname_edit)
 
         self._rec_button = QtWidgets.QPushButton()
-        self._rec_button.setText("Record")
+        self._rec_button.setText("Start recording")
         self._control_layout.addRow(self._rec_button)
         self._rec_button.pressed.connect(self._start_recording)
+
+        self._end_rec_button = QtWidgets.QPushButton()
+        self._end_rec_button.setText("End recording")
+        self._control_layout.addRow(self._end_rec_button)
+        self._end_rec_button.pressed.connect(self._stop_recording)
 
         self._ref_button = QtWidgets.QPushButton()
         self._ref_button.setText("Update reference")
         self._control_layout.addRow(self._ref_button)
         self._ref_button.pressed.connect(self._controller.update_motion_reference)
 
+        self._control_layout.addRow(QtWidgets.QLabel("<h3>OCT Scan</h3>"))  # -----------------------------------------
+
         self._adist_spin = QtWidgets.QDoubleSpinBox()
         self._adist_spin.setDecimals(4)
         self._adist_spin.setRange(0.00001, 0.1)
-        self._adist_spin.setValue(0.0020)
+        self._adist_spin.setValue(0.001)
         self._adist_spin.setSingleStep(0.0001)
         self._control_layout.addRow(QtWidgets.QLabel("A-line spacing (mm)"), self._adist_spin)
         self._adist_spin.valueChanged.connect(self.set_scan_pattern)
@@ -208,32 +237,54 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._flyback_duty_spin = QtWidgets.QDoubleSpinBox()
         self._flyback_duty_spin.setRange(0.01, 0.99)
-        self._flyback_duty_spin.setValue(0.05)
+        self._flyback_duty_spin.setValue(0.1)
         self._flyback_duty_spin.setSingleStep(0.01)
         self._control_layout.addRow(QtWidgets.QLabel("Flyback duty"), self._flyback_duty_spin)
         self._flyback_duty_spin.valueChanged.connect(self.set_scan_pattern)
 
         self._exposure_percentage_spin = QtWidgets.QDoubleSpinBox()
         self._exposure_percentage_spin.setRange(0.01, 0.99)
-        self._exposure_percentage_spin.setValue(0.75)
+        self._exposure_percentage_spin.setValue(0.70)
         self._exposure_percentage_spin.setSingleStep(0.01)
         self._control_layout.addRow(QtWidgets.QLabel("Exposure %"), self._exposure_percentage_spin)
         self._exposure_percentage_spin.valueChanged.connect(self.set_scan_pattern)
 
-        self._npeak_spin = QtWidgets.QSpinBox()
-        self._npeak_spin.setRange(0, int((NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR) / 2))
-        self._npeak_spin.setValue(4)
-        self._control_layout.addRow(QtWidgets.QLabel("Centroid peak N"), self._npeak_spin)
-        self._npeak_spin.valueChanged.connect(self._update_motion_parameters)
+        self._trigger_offset_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self._trigger_offset_slider.setValue(13)
+        self._trigger_offset_slider.setSingleStep(1)
+        self._trigger_offset_slider.valueChanged.connect(self._update_scan_pattern)
+        self._trigger_offset_label = QtWidgets.QLabel("Trigger skew (samples)")
+        self._control_layout.addRow(self._trigger_offset_label, self._trigger_offset_slider)
 
-        self._hpf_spin = QtWidgets.QSpinBox()
-        self._hpf_spin.setRange(0, int((NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR) / 2))
-        self._hpf_spin.setValue(int(1.5 * UPSAMPLE_FACTOR))
-        self._control_layout.addRow(QtWidgets.QLabel("HPF width"), self._hpf_spin)
-        self._hpf_spin.valueChanged.connect(self._update_motion_parameters)
+        self._x_offset_spin = QtWidgets.QDoubleSpinBox()
+        self._x_offset_spin.setRange(-5, 5)
+        self._x_offset_spin.setValue(0)
+        self._x_offset_spin.setDecimals(3)
+        self._x_offset_spin.setSingleStep(0.001)
+        self._control_layout.addRow(QtWidgets.QLabel("X shift (V/mm)"), self._x_offset_spin)
+        self._x_offset_spin.valueChanged.connect(self.set_scan_pattern)
 
-        self._mip_check = QtWidgets.QCheckBox()
-        self._control_layout.addRow(QtWidgets.QLabel("Display MIP"), self._mip_check)
+        self._y_offset_spin = QtWidgets.QDoubleSpinBox()
+        self._y_offset_spin.setRange(-5, 5)
+        self._y_offset_spin.setValue(0)
+        self._y_offset_spin.setDecimals(3)
+        self._y_offset_spin.setSingleStep(0.001)
+        self._control_layout.addRow(QtWidgets.QLabel("Y shift"), self._y_offset_spin)
+        self._y_offset_spin.valueChanged.connect(self.set_scan_pattern)
+
+        self._angle_spin = QtWidgets.QDoubleSpinBox()
+        self._angle_spin.setRange(-360, 360)
+        self._angle_spin.setValue(8)
+        self._angle_spin.setDecimals(1)
+        self._angle_spin.setSingleStep(1)
+        self._control_layout.addRow(QtWidgets.QLabel("Rotation"), self._angle_spin)
+        self._angle_spin.valueChanged.connect(self.set_scan_pattern)
+
+        self._control_layout.addRow(QtWidgets.QLabel("<h3>Display</h3>"))  # ------------------------------------------
+
+        self._show_corr_check = QtWidgets.QCheckBox()
+        self._show_corr_check.setChecked(False)
+        self._control_layout.addRow(QtWidgets.QLabel("Draw correlogram"), self._show_corr_check)
 
         self._xsection_radio = QtWidgets.QRadioButton()
         self._xsection_radio.setChecked(True)
@@ -246,90 +297,116 @@ class MainWindow(QtWidgets.QMainWindow):
         self._slice_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self._slice_slider.setRange(0, (NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR) - 1)
         self._slice_slider.setSingleStep(1)
-        self._control_layout.addRow(QtWidgets.QLabel("Slice"), self._slice_slider)
+        self._control_layout.addRow(QtWidgets.QLabel("Slice to view"), self._slice_slider)
 
-        self._trigger_offset_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self._trigger_offset_slider.setValue(16)
-        self._trigger_offset_slider.setSingleStep(1)
-        self._trigger_offset_slider.valueChanged.connect(self._update_scan_pattern)
-        self._trigger_offset_label = QtWidgets.QLabel("Trigger skew (samples)")
-        self._control_layout.addRow(self._trigger_offset_label, self._trigger_offset_slider)
+        self._mip_check = QtWidgets.QCheckBox()
+        self._control_layout.addRow(QtWidgets.QLabel("Display MIP"), self._mip_check)
+
+        self._control_layout.addRow(QtWidgets.QLabel("<h3>Motion quantification & correction</h3>"))  # ----------------
+
+        self._dac_output_check = QtWidgets.QCheckBox()
+        self._dac_output_check.setChecked(True)
+        self._control_layout.addRow(QtWidgets.QLabel("Enable DAC output"), self._dac_output_check)
+        self._dac_output_check.stateChanged.connect(self._update_motion_parameters)
+
+        self._npeak_spin = QtWidgets.QSpinBox()
+        self._npeak_spin.setRange(0, int((NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR) / 2))
+        self._npeak_spin.setValue(1)
+        self._control_layout.addRow(QtWidgets.QLabel("Centroid peak N"), self._npeak_spin)
+        self._npeak_spin.valueChanged.connect(self._update_motion_parameters)
+
+        self._hpf_spin = QtWidgets.QSpinBox()
+        self._hpf_spin.setRange(0, NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR)
+        self._hpf_spin.setValue(int((NUMBER_OF_ALINES_PER_B / 8) * UPSAMPLE_FACTOR))
+        self._control_layout.addRow(QtWidgets.QLabel("HPF width"), self._hpf_spin)
+        self._hpf_spin.valueChanged.connect(self._update_motion_parameters)
 
         self._x_factor_spin = QtWidgets.QDoubleSpinBox()
-        self._x_factor_spin.setRange(-5, 5)
-        self._x_factor_spin.setValue(0.3)
+        self._x_factor_spin.setRange(-1000, 1000)
+        self._x_factor_spin.setValue(-96)
         self._x_factor_spin.setDecimals(2)
-        self._x_factor_spin.setSingleStep(0.01)
-        self._control_layout.addRow(QtWidgets.QLabel("X DAC scale factor"), self._x_factor_spin)
+        self._x_factor_spin.setSingleStep(0.1)
+        self._control_layout.addRow(QtWidgets.QLabel("X feedback scale factor"), self._x_factor_spin)
         self._x_factor_spin.valueChanged.connect(self._update_motion_parameters)
 
         self._y_factor_spin = QtWidgets.QDoubleSpinBox()
-        self._y_factor_spin.setRange(-5, 5)
-        self._y_factor_spin.setValue(-0.3)
+        self._y_factor_spin.setRange(-1000, 1000)
+        self._y_factor_spin.setValue(70)
         self._y_factor_spin.setDecimals(2)
-        self._y_factor_spin.setSingleStep(0.01)
-        self._control_layout.addRow(QtWidgets.QLabel("Y DAC scale factor"), self._y_factor_spin)
+        self._y_factor_spin.setSingleStep(0.1)
+        self._control_layout.addRow(QtWidgets.QLabel("Y feedback scale factor (V/mm)"), self._y_factor_spin)
         self._y_factor_spin.valueChanged.connect(self._update_motion_parameters)
 
         self._z_factor_spin = QtWidgets.QDoubleSpinBox()
-        self._z_factor_spin.setRange(-5, 5)
-        self._z_factor_spin.setValue(-0.5)
+        self._z_factor_spin.setRange(-1000, 1000)
+        self._z_factor_spin.setValue(0)
+        self._z_factor_spin.setDecimals(2)
         self._z_factor_spin.setSingleStep(0.1)
-        self._control_layout.addRow(QtWidgets.QLabel("Z DAC scale factor"), self._z_factor_spin)
+        self._control_layout.addRow(QtWidgets.QLabel("Z feedback scale factor (V/mm)"), self._z_factor_spin)
         self._z_factor_spin.valueChanged.connect(self._update_motion_parameters)
 
-        self._x_offset_spin = QtWidgets.QDoubleSpinBox()
-        self._x_offset_spin.setRange(-5, 5)
-        self._x_offset_spin.setValue(0)
-        self._x_offset_spin.setDecimals(2)
-        self._x_offset_spin.setSingleStep(0.01)
-        self._control_layout.addRow(QtWidgets.QLabel("X shift"), self._x_offset_spin)
-        self._x_offset_spin.valueChanged.connect(self.set_scan_pattern)
+        self._3dwindow_check = QtWidgets.QCheckBox()
+        self._3dwindow_check.setChecked(True)
+        self._3dwindow_check.stateChanged.connect(self._update_motion_parameters)
+        self._control_layout.addRow(QtWidgets.QLabel("Apply window prior to FFT"), self._3dwindow_check)
 
-        self._y_offset_spin = QtWidgets.QDoubleSpinBox()
-        self._y_offset_spin.setRange(-5, 5)
-        self._y_offset_spin.setValue(0)
-        self._y_offset_spin.setDecimals(2)
-        self._y_offset_spin.setSingleStep(0.01)
-        self._control_layout.addRow(QtWidgets.QLabel("Y shift"), self._y_offset_spin)
-        self._y_offset_spin.valueChanged.connect(self.set_scan_pattern)
+        self._control_layout.addRow(QtWidgets.QLabel("<h3>Kalman filter</h3>"))  # -------------------------
 
-        self._d_spin = QtWidgets.QDoubleSpinBox()
-        self._d_spin.setDecimals(3)
-        self._d_spin.setValue(0.99)
-        self._d_spin.setRange(-9999, 9999)
-        self._control_layout.addRow(QtWidgets.QLabel("KF pos decay (d)"), self._d_spin)
-        self._d_spin.valueChanged.connect(self._update_motion_parameters)
+        self._dt_spin = QtWidgets.QDoubleSpinBox()
+        self._dt_spin.setValue(1)
+        self._dt_spin.setDecimals(4)
+        self._dt_spin.setRange(-9999, 9999)
+        self._control_layout.addRow(QtWidgets.QLabel("KF dt"), self._dt_spin)
+        self._dt_spin.valueChanged.connect(self._update_motion_parameters)
+
+        self._e_spin = QtWidgets.QDoubleSpinBox()
+        self._e_spin.setValue(1)
+        self._e_spin.setDecimals(4)
+        self._e_spin.setSingleStep(0.0001)
+        self._e_spin.setRange(-9999, 9999)
+        self._control_layout.addRow(QtWidgets.QLabel("KF position decay (e)"), self._e_spin)
+        self._e_spin.valueChanged.connect(self._update_motion_parameters)
+
+        self._f_spin = QtWidgets.QDoubleSpinBox()
+        self._f_spin.setValue(1)
+        self._f_spin.setDecimals(4)
+        self._f_spin.setSingleStep(0.0001)
+        self._f_spin.setRange(-9999, 9999)
+        self._control_layout.addRow(QtWidgets.QLabel("KF velocity decay (f)"), self._f_spin)
+        self._f_spin.valueChanged.connect(self._update_motion_parameters)
 
         self._g_spin = QtWidgets.QDoubleSpinBox()
-        self._g_spin.setDecimals(3)
-        self._g_spin.setValue(0.99)
+        self._g_spin.setValue(1)
+        self._g_spin.setDecimals(4)
+        self._g_spin.setSingleStep(0.0001)
         self._g_spin.setRange(-9999, 9999)
-        self._control_layout.addRow(QtWidgets.QLabel("KF v decay (g)"), self._g_spin)
+        self._control_layout.addRow(QtWidgets.QLabel("KF accel decay (g)"), self._g_spin)
         self._g_spin.valueChanged.connect(self._update_motion_parameters)
 
-        # self._q_spin = QtWidgets.QDoubleSpinBox()
-        # self._q_spin.setDecimals(3)
-        # self._q_spin.setValue(0.0100)
-        # self._q_spin.setRange(-9999, 9999)
-        # self._control_layout.addRow(QtWidgets.QLabel("KF process noise (q)"), self._q_spin)
-        # self._q_spin.valueChanged.connect(self._update_motion_parameters)
+        self._q_spin = QtWidgets.QDoubleSpinBox()
+        self._q_spin.setDecimals(2)
+        self._q_spin.setRange(-9999, 9999)
+        self._q_spin.setValue(1)
+        self._control_layout.addRow(QtWidgets.QLabel("KF process noise (q)"), self._q_spin)
+        self._q_spin.valueChanged.connect(self._update_motion_parameters)
 
-        self._r_spin = QtWidgets.QDoubleSpinBox()
-        self._r_spin.setDecimals(0)
-        self._r_spin.setValue(100)
-        self._r_spin.setRange(-10000000, 10000000)
-        self._control_layout.addRow(QtWidgets.QLabel("KF r / q"), self._r_spin)
-        self._r_spin.valueChanged.connect(self._update_motion_parameters)
+        self._r1_spin = QtWidgets.QDoubleSpinBox()
+        self._r1_spin.setDecimals(2)
+        self._r1_spin.setRange(-10000000, 10000000)
+        self._r1_spin.setValue(1000)
+        self._control_layout.addRow(QtWidgets.QLabel("KF position meas noise (r1)"), self._r1_spin)
+        self._r1_spin.valueChanged.connect(self._update_motion_parameters)
 
-        self._d = np.ones(3).astype(np.float64) * self._d_spin.value()
-        self._g = np.ones(3).astype(np.float64) * self._g_spin.value()
-        self._q = np.ones(3).astype(np.float64) * 1
-        self._r = np.ones(3).astype(np.float64) * self._r_spin.value()
+        self._r2_spin = QtWidgets.QDoubleSpinBox()
+        self._r2_spin.setDecimals(2)
+        self._r2_spin.setRange(-10000000, 10000000)
+        self._r2_spin.setValue(10)
+        self._control_layout.addRow(QtWidgets.QLabel("KF velocity meas noise (r2)"), self._r2_spin)
+        self._r2_spin.valueChanged.connect(self._update_motion_parameters)
 
         self._control_panel.setLayout(self._control_layout)
 
-        self.mainlayout.addWidget(self._control_panel, 0, 0, 2, 1)
+        self.mainlayout.addWidget(self._control_panel, 0, 0, 5, 1)
 
         # -------
 
@@ -355,6 +432,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._rec_mot = []
         self._rec_img = []
 
+        self._is_recording = False
+
         self._recording_n = -1
         self._recorded_n = 0
 
@@ -365,63 +444,82 @@ class MainWindow(QtWidgets.QMainWindow):
         self._grab_buffer_upsampled = np.empty(ROI_SIZE * UPSAMPLE_FACTOR * NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR * NUMBER_OF_BLINES * UPSAMPLE_FACTOR, dtype=np.complex64)
         self._grab_buffer_upsampled_2d = np.empty(NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR * NUMBER_OF_BLINES * UPSAMPLE_FACTOR, dtype=np.complex64)
 
-        self._mot_buffer = np.empty(4, dtype=np.float64)
+        self._mot_buffer = np.zeros(9, dtype=np.float64)
 
-        self._motion_output_enabled = False
+        self._motion_quant_enabled = False
         self._timer = QTimer()
+
+        while not self._controller.is_ready_to_scan():
+            time.sleep(0.1)
 
     def _start_recording(self):
         self._cvstream = CvStream(fps=18)
-        self._recording_n = int(self._pat.get_pattern_rate() * self._rec_sec_spin.value())
+        # self._recording_n = int(self._pat.get_pattern_rate() * self._rec_sec_spin.value())
+        # self._recorded_n = 0
+        # print('Allocating recording buffers...')
+        # self._rec_mot = np.empty([4, self._recording_n], dtype=np.float64)
+        # self._rec_img = np.empty([ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES, self._recording_n], dtype=np.complex64)
+        # self._cvstream.capture_n_seconds(self._fname_edit.text() + '_vid', int(self._rec_sec_spin.value()))
+
+        self._rec_mot = []
+        self._rec_img = []
+        self._t_rec_start = time.time()
+        self._recording_n = -1
         self._recorded_n = 0
-        print('Allocating recording buffers...')
-        self._rec_mot = np.empty([4, self._recording_n], dtype=np.float64)
-        self._rec_img = np.empty([ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES, self._recording_n], dtype=np.complex64)
-        self._cvstream.capture_n_seconds(self._fname_edit.text() + '_vid', int(self._rec_sec_spin.value()))
+        self._cvstream.start(self._fname_edit.text())
+        self._is_recording = True
+
+    def _stop_recording(self):
+        n_recorded = len(self._rec_mot)
+        elapsed = time.time() - self._t_rec_start
+        print('Recorded', n_recorded, 'frames in', str(elapsed)[0:6], 's at', str(n_recorded / elapsed)[0:6], 'hz')
+        self._cvstream.stop()
+        np.save(self._fname_edit.text() + '_img', np.array(self._rec_img))
+        np.save(self._fname_edit.text() + '_mot', np.array(self._rec_mot))
+        self._is_recording = False
 
     def _start_scan(self):
         self._controller.start_scan()
         self._timer.timeout.connect(self._update)
-        # self._timer.start(1 / REFRESH_RATE * 1000)
-        self._timer.start(2 * int(1 / self._pat.get_pattern_rate()))
+        self._timer.start(1 / (1.5 * REFRESH_RATE))
 
     def _stop_scan(self):
         self._timer.stop()
         self._controller.stop_scan()
 
     def _stop_output(self):
-        self._controller.stop_motion_output()
-        self._motion_output_enabled = False
+        self._controller.stop_motion_quant()
+        self._motion_quant_enabled = False
 
     def _start_output(self):
         if isinstance(self._pat, BidirectionalRasterScanPattern):
             bd = True
         else:
             bd = False
-        self._d = np.ones(3).astype(np.float64) * self._d_spin.value()
-        self._g = np.ones(3).astype(np.float64) * self._g_spin.value()
-        self._q = np.ones(3).astype(np.float64) * 1
-        self._r = np.ones(3).astype(np.float64) * self._r_spin.value()
+        self._get_kf_params()
         self._generate_windows()
-        self._controller.start_motion_output(
+        self._get_scale_factors()
+        self._controller.configure_motion_output(AO_DX, AO_DY, AO_DZ, self._scale_factors, self._dac_output_check.isChecked())
+        self._controller.start_motion_quant(
             np.array([NUMBER_OF_ALINES_PER_B, NUMBER_OF_ALINES_PER_B, NUMBER_OF_ALINES_PER_B]).astype(int),
-            np.array([self._x_factor_spin.value(), self._y_factor_spin.value(), self._z_factor_spin.value()]).astype(np.float64),
-            UPSAMPLE_FACTOR, self._npeak_spin.value(), self._spectral_window3d, self._spatial_window3d, self._d, self._g, self._q, self._r, bidirectional=bd)
-        self._motion_output_enabled = True
+            UPSAMPLE_FACTOR, self._npeak_spin.value(), self._spectral_window3d, self._spatial_window3d,
+            self._e, self._f,  self._g, self._q, self._r1, self._r2, self._dt, N_LAG, bidirectional=bd)
+        self._motion_quant_enabled = True
 
     def _update_motion_parameters(self):
-        if self._motion_output_enabled:
+        if self._motion_quant_enabled:
             if isinstance(self._pat, BidirectionalRasterScanPattern):
                 bd = True
             else:
                 bd = False
             self._generate_windows()
-            self._d = np.ones(3).astype(np.float64) * self._d_spin.value()
-            self._g = np.ones(3).astype(np.float64) * self._g_spin.value()
-            self._q = np.ones(3).astype(np.float64) * 1
-            self._r = np.ones(3).astype(np.float64) * self._r_spin.value()
-            self._controller.update_motion_parameters(np.array([self._x_factor_spin.value(), self._y_factor_spin.value(), self._z_factor_spin.value()]).astype(np.float64),
-                                                      int(self._npeak_spin.value()), self._spectral_window3d, self._spatial_window3d, self._d, self._g, self._q, self._r, bidirectional=bd)
+            self._get_kf_params()
+            self._get_scale_factors()
+            self._controller.configure_motion_output(AO_DX, AO_DY, AO_DZ, self._scale_factors,
+                                                     self._dac_output_check.isChecked())
+            self._controller.update_motion_parameters(int(self._npeak_spin.value()), self._spectral_window3d,
+                                                      self._spatial_window3d, self._e, self._f, self._g, self._q,
+                                                      self._r1, self._r2, self._dt, bidirectional=bd)
 
     def _update(self):
         got = self._controller.grab_frame(self._grab_buffer)
@@ -432,7 +530,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     self._display_buffer = np.abs(reshape_unidirectional_frame(self._grab_buffer, ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES))
 
-                if self._motion_output_enabled:
+                if self._motion_quant_enabled:
 
                     # -- MIP3 --------------------------------------------------------------------------
 
@@ -442,57 +540,56 @@ class MainWindow(QtWidgets.QMainWindow):
                     # self.r_view.setImage(np.fft.ifftshift(self._display_buffer_upsampled))
                     # # self.r_view.setImage(np.fft.ifft2(self._display_buffer_upsampled)))
 
-                    # -- Copying the 3D correlogram out of the working buffer is VERY slow -------------
+                    # Copying the 3D correlogram out of the working buffer is VERY slow
+                    if self._show_corr_check.isChecked():
+                        self._controller.grab_motion_correlogram(self._grab_buffer_upsampled)
+                        self._display_buffer_upsampled = np.abs(reshape_unidirectional_frame(self._grab_buffer_upsampled, ROI_SIZE * UPSAMPLE_FACTOR, NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR, NUMBER_OF_BLINES * UPSAMPLE_FACTOR))
 
-                    # self._controller.grab_motion_correlogram(self._grab_buffer_upsampled)
-                    # self._display_buffer_upsampled = np.abs(reshape_unidirectional_frame(self._grab_buffer_upsampled, ROI_SIZE * UPSAMPLE_FACTOR, NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR, NUMBER_OF_BLINES * UPSAMPLE_FACTOR))
-                    #
-                    # if self._xsection_radio.isChecked():
-                    #     if self._mip_check.isChecked():
-                    #         self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=1)
-                    #     else:
-                    #         self._display_buffer_upsampled = self._display_buffer_upsampled[:, self._slice_slider.value(), :]
-                    # elif self._ysection_radio.isChecked():
-                    #     if self._mip_check.isChecked():
-                    #         self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=2)
-                    #     else:
-                    #         self._display_buffer_upsampled = self._display_buffer_upsampled[:, :, self._slice_slider.value()]
-                    # else:
-                    #     if self._mip_check.isChecked():
-                    #         self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=0)
-                    #     else:
-                    #         self._display_buffer_upsampled = self._display_buffer_upsampled[self._slice_slider.value(), :, :]
-                    #
-                    # self.r_view.setImage(np.fft.fftshift(self._display_buffer_upsampled))
+                        self.r_view.setLevels([np.min(self._display_buffer_upsampled), np.max(self._display_buffer_upsampled)])
+                        if self._xsection_radio.isChecked():
+                            if self._mip_check.isChecked():
+                                self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=1)
+                            else:
+                                self._display_buffer_upsampled = self._display_buffer_upsampled[:, self._slice_slider.value(), :]
+                        elif self._ysection_radio.isChecked():
+                            if self._mip_check.isChecked():
+                                self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=2)
+                            else:
+                                self._display_buffer_upsampled = self._display_buffer_upsampled[:, :, self._slice_slider.value()]
+                        else:
+                            if self._mip_check.isChecked():
+                                self._display_buffer_upsampled = np.max(self._display_buffer_upsampled, axis=0)
+                            else:
+                                self._display_buffer_upsampled = self._display_buffer_upsampled[self._slice_slider.value(), :, :]
 
-                    # -----
+                        self.r_view.setImage(np.fft.fftshift(self._display_buffer_upsampled))
 
                     # Grab motion vector
                     if not self._controller.grab_motion_vector(self._mot_buffer):  # Returns 0 if dequeue is successful
-                        self.mot_x_plot.append_to_plot([self._mot_buffer[0]])
-                        self.mot_y_plot.append_to_plot([self._mot_buffer[1]])
-                        self.mot_z_plot.append_to_plot([self._mot_buffer[2]])
-                        if self._recorded_n < self._recording_n and time.time() - self._t_rec_start < self._rec_sec_spin.value():  # If actively recording
-                            if self._recorded_n == 0:
-                                self._t_rec_start = time.time()
+                        if self._is_recording:
                             self._rec_button.setEnabled(False)
                             self._fname_edit.setEnabled(False)
                             self._rec_sec_spin.setEnabled(False)
-                            self._rec_img[:, :, :, self._recorded_n] = self._display_buffer
-                            self._rec_mot[:, self._recorded_n] = self._mot_buffer
+                            self._end_rec_button.setEnabled(True)
+                            self._rec_img.append(np.copy(self._display_buffer))
+                            self._rec_mot.append(np.copy(self._mot_buffer))
                             self._recorded_n += 1
-                        elif self._recorded_n == self._recording_n:  # Recording is finished, write the files
-                            elapsed = time.time() - self._t_rec_start
-                            print('Finished recording', self._recorded_n, 'frames to', self._fname_edit.text(), 'in', str(elapsed)[0:7], 's at', str(self._recorded_n / elapsed)[0:7], 'hz')
+                        else:
                             self._rec_button.setEnabled(True)
                             self._fname_edit.setEnabled(True)
                             self._rec_sec_spin.setEnabled(True)
-                            np.save(self._fname_edit.text() + '_img', self._rec_img)
-                            np.save(self._fname_edit.text() + '_mot', self._rec_mot)
-                            self._recording_n = -1
-                            self._recorded_n = 0
+                            self._end_rec_button.setEnabled(False)
+                            self.mot_x_plot.append_to_plot([self._mot_buffer[0]])
+                            self.mot_y_plot.append_to_plot([self._mot_buffer[1]])
+                            # self.mot_z_plot.append_to_plot([self._mot_buffer[2]])
+                            self.mot_dx_plot.append_to_plot([self._mot_buffer[3]])
+                            self.mot_dy_plot.append_to_plot([self._mot_buffer[4]])
+                            # self.mot_dz_plot.append_to_plot([self._mot_buffer[5]])
+                        self.mot_x_output_plot.append_to_plot([self._mot_buffer[6]])
+                        self.mot_y_output_plot.append_to_plot([self._mot_buffer[7]])
+                        # self.mot_z_output_plot.append_to_plot([self._mot_buffer[8]])
 
-                if not self._recorded_n < self._recording_n:  # Only draw view if not recording
+                if not self._is_recording:  # Only draw view if not recording
                     if self._xsection_radio.isChecked():
                         if self._mip_check.isChecked():
                             self._display_buffer = np.max(self._display_buffer, axis=1)
@@ -511,8 +608,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
                     self.tn_view.setImage(self._display_buffer)
 
-                self._controller.grab_spectrum(self._spectrum_buffer)
-                self.bg_plot.set_spectrum_data(self._spectrum_buffer)
+                # self._controller.grab_spectrum(self._spectrum_buffer)
+                # self.bg_plot.set_spectrum_data(self._spectrum_buffer)
 
             else:
                 # print('Frame contains NaN')
@@ -523,19 +620,45 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _generate_windows(self):
         pad = int(((NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR) - NUMBER_OF_ALINES_PER_B) / 2)
-        self._spatial_window3d = blackman_cube(NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR, pad=pad)
-        self._spectral_window3d = np.ones(np.shape(self._spatial_window3d))
+        self._spatial_window3d = blackman_cube(NUMBER_OF_ALINES_PER_B, pad=pad)
+
+        self._spatial_window3d = self._spatial_window3d.astype(np.float32).flatten()
+        if not self._3dwindow_check.isChecked():
+            self._spatial_window3d = np.ones(len(self._spatial_window3d)).astype(np.float32).flatten()
+
+        self._spectral_window3d = np.ones([NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR,
+                                           NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR,
+                                           NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR])
 
         self._spectral_window3d[0:self._hpf_spin.value(), 0:self._hpf_spin.value(), 0:self._hpf_spin.value()] = 0
         self._spectral_window3d = np.roll(self._spectral_window3d, int(-self._hpf_spin.value() / 2), axis=0)
         self._spectral_window3d = np.roll(self._spectral_window3d, int(-self._hpf_spin.value() / 2), axis=1)
         self._spectral_window3d = np.roll(self._spectral_window3d, int(-self._hpf_spin.value() / 2), axis=2)
 
-        self._spatial_window3d = self._spatial_window3d.astype(np.float32).flatten()
+        # plt.subplot(1,2,1)
+        # plt.imshow(np.min(self._spectral_window3d, axis=0))
+
+        plt.show()
+
         self._spectral_window3d = self._spectral_window3d.astype(np.float32).flatten()
 
-        self._spatial_window3d = np.ones(len(self._spatial_window3d)).astype(np.float32).flatten()
-        # self._spectral_window3d = np.ones(len(self._spectral_window3d)).astype(np.float32).flatten()
+
+
+    def _get_scale_factors(self):  # Amp scale factor * V/mm * mm/pixel = volts/pixel displacement
+        self._scale_factors = np.array([
+            1 * self._x_factor_spin.value() * self._adist_spin.value(),
+            1 * self._y_factor_spin.value() * self._adist_spin.value(),
+            1 * self._z_factor_spin.value() * self._adist_spin.value()
+        ]).astype(np.float64)
+
+    def _get_kf_params(self):
+        self._e = np.ones(3).astype(np.float64) * self._e_spin.value()
+        self._f = np.ones(3).astype(np.float64) * self._f_spin.value()
+        self._g = np.ones(3).astype(np.float64) * self._g_spin.value()
+        self._q = np.ones(3).astype(np.float64) * self._q_spin.value()
+        self._r1 = np.ones(3).astype(np.float64) * self._r1_spin.value()
+        self._r2 = np.ones(3).astype(np.float64) * self._r2_spin.value()
+        self._dt = self._dt_spin.value()
 
     def _define_scan_pattern(self):
         fovwidth = (NUMBER_OF_ALINES_PER_B - 1) * self._adist_spin.value()
@@ -547,7 +670,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._pat = RasterScanPattern()
 
         self._pat.generate(alines=NUMBER_OF_ALINES_PER_B, blines=NUMBER_OF_BLINES, fov=[fovwidth, fovwidth],
-                           samples_on=1, samples_off=1, exposure_percentage=exp, flyback_duty=fb)
+                           samples_on=1, samples_off=1, exposure_percentage=exp, flyback_duty=fb,
+                           rotation_rad=self._angle_spin.value() * (np.pi / 180))
         self._trigger_offset_slider.setRange(-np.floor_divide(len(self._pat.get_line_trig()), 8),
                                              np.floor_divide(len(self._pat.get_line_trig()), 8))
         print("Generated", type(self._pat), "raster scan rate", self._pat.get_pattern_rate(), 'Hz')
@@ -569,7 +693,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event):
         self._timer.stop()
         self._controller.stop_scan()
-        # self._controller.stop_motion_output()
+        # self._controller.stop_motion_quant()
         event.accept()
 
 
