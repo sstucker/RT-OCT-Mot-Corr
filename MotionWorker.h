@@ -26,7 +26,8 @@ enum MotionMessageFlag
 	GrabCorrelogram = 1 << 4,
 	GrabFrame = 1 << 5,
 	UpdateParameters = 1 << 6,
-	ConfigOutput = 1 << 7
+	ConfigOutput = 1 << 7,
+	RunExperiment = 1 << 8
 };
 
 DEFINE_ENUM_FLAG_OPERATORS(MotionMessageFlag);
@@ -59,6 +60,9 @@ struct MotionMessage
 	const char* ao_dx_ch;  // DAC correction signal generation channels
 	const char* ao_dy_ch;
 	const char* ao_dz_ch;
+	const char* ao_trig_ch;
+	int exp_n_stim;  // Experiment: number of aux2 pulses to generate
+	int exp_wait_seconds;  // Experiment: number of passive seconds to record before and after each aux2 pulse
 };
 
 struct MotionVector
@@ -72,8 +76,8 @@ struct MotionVector
 	double filtered_x;
 	double filtered_y;
 	double filtered_z;
-	int dt;  // The number of frames since reference frame t0. Unused
-	double r;  // The complex-valued correlation of the frames. Unused
+	double aux1;  // Aux channel (Experiment start trigger)
+	double aux2;  // Aux channel (Air puff stimulus trigger)
 };
 
 typedef spsc_bounded_queue_t<MotionMessage> MotionQueue;
@@ -112,6 +116,11 @@ protected:
 
 	bool update_reference;
 	bool filters_enabled;
+	
+	bool experiment_running;
+	bool experiment_start;
+	int exp_n_stim; // Number of stimuli left to acquire
+	int exp_wait_sec;  // Seconds to wait before or after each stimuli
 
 	int initializeCAFilters(double* d, double* f, double* g, double* q, double* r1, double* r2, double dt)
 	{
@@ -161,7 +170,7 @@ protected:
 		return 0;
 	}
 
-	int openMotionOutputTask(const char* x_out_ch, const char* y_out_ch, const char* z_out_ch)
+	int openMotionOutputTask(const char* x_out_ch, const char* y_out_ch, const char* z_out_ch, const char* aux1_ch, const char* aux2_ch)
 	{
 		if (running.load())
 		{
@@ -182,11 +191,13 @@ protected:
 			return err;
 		}
 
-		printf("Opening motion output task with AO channels %s %s %s\n", x_out_ch, y_out_ch, z_out_ch);
+		printf("Opening motion output task with AO channels %s %s %s %s %s\n", x_out_ch, y_out_ch, z_out_ch, aux1_ch, aux2_ch);
 
 		err = DAQmxCreateAOVoltageChan(motion_output_task, x_out_ch, "x", -10, 10, DAQmx_Val_Volts, NULL);
 		err = DAQmxCreateAOVoltageChan(motion_output_task, y_out_ch, "y", -10, 10, DAQmx_Val_Volts, NULL);
 		err = DAQmxCreateAOVoltageChan(motion_output_task, z_out_ch, "z", -10, 10, DAQmx_Val_Volts, NULL);
+		err = DAQmxCreateAOVoltageChan(motion_output_task, aux1_ch, "aux1", -10, 10, DAQmx_Val_Volts, NULL);
+		err = DAQmxCreateAOVoltageChan(motion_output_task, aux2_ch, "aux2", -10, 10, DAQmx_Val_Volts, NULL);
 
 		// err = DAQmxCfgSampClkTiming(motion_output_task, NULL, 200, DAQmx_Val_Rising, DAQmx_Val_OnDemand, 1);
 		// err = DAQmxCfgOutputBuffer(motion_output_task, 0);
@@ -222,7 +233,7 @@ protected:
 			if (msg.flag & ConfigOutput)
 			{
 				// TODO sort out the channel input strings
-				if (openMotionOutputTask("Dev1/ao4", "Dev1/ao5", "Dev1/ao6") == 0)
+				if (openMotionOutputTask("Dev1/ao4", "Dev1/ao5", "Dev1/ao6", "Dev1/ao7", "Dev1/ao8") == 0)
 				{
 					dac_output_enabled = msg.output_enabled;
 					memcpy(daq_xyz_scale, msg.scale_xyz, 3 * sizeof(double));
@@ -273,6 +284,17 @@ protected:
 					update_reference = true;
 				}
 			}
+			if (msg.flag & RunExperiment)
+			{
+				if (running.load() && !experiment_running)  // Only start an experiment if one is not ongoing
+				{
+					exp_n_stim = msg.exp_n_stim;
+					exp_wait_sec = msg.exp_wait_seconds;
+					printf("Running experiment with %i stims\n", exp_n_stim);
+					experiment_running = true;
+					experiment_start = true;
+				}
+			}
 			if (msg.flag & Stop)
 			{
 				if (running.load())
@@ -292,6 +314,14 @@ protected:
 	void main()
 	{
 		printf("MotionWorker main() running...\n");
+
+		exp_n_stim = 0;
+		exp_wait_sec = 0;
+		std::chrono::steady_clock::time_point exp_t_last_stim;
+		std::chrono::steady_clock::time_point exp_t_start;
+
+		experiment_running = false;
+		experiment_start = false;
 
 		bool fopen = false;
 		int total = 0;
@@ -355,7 +385,7 @@ protected:
 							daq_xyz_out[i] = filters_xyz[i].getState()[0];  // Get first state var, position
 						}
 						daq_xyz_out[i] = daq_xyz_out[i] * daq_xyz_scale[i];
-					}
+					} 
 
 					/*
 					// Testing clock
@@ -364,17 +394,39 @@ protected:
 					daq_xyz_out[2] = (total % 2 == 0);
 					*/
 
-					if (dac_output_enabled)
+					if (experiment_running)
 					{
-						int err = DAQmxWriteAnalogF64(motion_output_task, 1, true, -1, DAQmx_Val_GroupByChannel, daq_xyz_out, mot_samps_written, NULL);
-						if (err != 0)
+						if (experiment_start)
 						{
-							printf("DAQmx error writing to DAC:\n");
-							char* buf = new char[512];
-							DAQmxGetErrorString(err, buf, 512);
-							printf(buf);
-							printf("\n");
-							delete[] buf;
+							daq_xyz_out[3] = 5.0;  // Start trigger
+							experiment_start = false;
+							exp_t_last_stim = std::chrono::steady_clock::now();
+							exp_t_start = std::chrono::steady_clock::now();
+							printf("Started experiment\n");
+						}
+						else
+						{
+							daq_xyz_out[3] = 0.0;
+							std::chrono::steady_clock::duration duration = std::chrono::steady_clock::now() - exp_t_last_stim;
+							float elapsed = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+							if (elapsed >= exp_wait_sec)
+							{
+								if (exp_n_stim == 0)
+								{
+									experiment_running = false;
+								}
+								else
+								{
+									printf("%i seconds elapsed. Generating pulse on aux2\n", elapsed);
+									daq_xyz_out[4] = 5.0;
+									exp_n_stim -= 1;
+									exp_t_last_stim = std::chrono::steady_clock::now();
+								}
+							}
+							else
+							{
+								daq_xyz_out[4] = 0.0;
+							}
 						}
 					}
 
@@ -386,9 +438,28 @@ protected:
 									   correlation_out[5],
 									   daq_xyz_out[0],
 									   daq_xyz_out[1],
-									   daq_xyz_out[2]
+									   daq_xyz_out[2],
+									   daq_xyz_out[3],
+									   daq_xyz_out[4]
 					};
 					output_queue->enqueue(v);
+
+					if (!dac_output_enabled)  // Zero the correction output if dac_output_enabled is false
+					{
+						daq_xyz_out[0] = 0;
+						daq_xyz_out[1] = 0;
+						daq_xyz_out[2] = 0;
+					}
+					int err = DAQmxWriteAnalogF64(motion_output_task, 1, true, -1, DAQmx_Val_GroupByChannel, daq_xyz_out, mot_samps_written, NULL);
+					if (err != 0)
+					{
+						printf("DAQmx error writing to DAC:\n");
+						char* buf = new char[512];
+						DAQmxGetErrorString(err, buf, 512);
+						printf(buf);
+						printf("\n");
+						delete[] buf;
+					}
 
 					total += 1;
 					n_wanted += 1;
@@ -422,13 +493,13 @@ public:
 		mot_thread = std::thread(&MotionWorker::main, this);
 
 		correlation_out = new double[6];
-		daq_xyz_out = new double[3];  // Buffer for samples before they are written
+		daq_xyz_out = new double[5];  // Buffer for samples before they are written
 		daq_xyz_scale = new double[3]; // Scale factors for DAC channels
-		mot_samps_written = new int32[3];  // TODO multi-channel
+		mot_samps_written = new int32[5];  // TODO multi-channel
 
-		memset(daq_xyz_out, 0, 3 * sizeof(double));
+		memset(daq_xyz_out, 0, 5 * sizeof(double));
 		memset(daq_xyz_scale, 1 / 4, 3 * sizeof(double));
-		memset(mot_samps_written, 0, 3 * sizeof(int32));
+		memset(mot_samps_written, 0, 5 * sizeof(int32));
 
 		filters_xyz = new SimpleKalmanFilter[3];
 		filter_input_xyz = new Eigen::VectorXd[3];
@@ -515,6 +586,16 @@ public:
 		msg_queue->enqueue(msg);
 	}
 
+	// An experiment consists of: [start trigger] followed by [wait] [stim trigger] x nStim ... [wait]
+	void runExperiment(int nStim, int waitSeconds)
+	{
+		MotionMessage msg;
+		msg.flag = RunExperiment;
+		msg.exp_n_stim = nStim;
+		msg.exp_wait_seconds = waitSeconds;
+		msg_queue->enqueue(msg);
+	}
+
 	int grabMotionVector(double* out)
 	{
 		MotionVector v;
@@ -529,6 +610,8 @@ public:
 			out[6] = v.filtered_x;
 			out[7] = v.filtered_y;
 			out[8] = v.filtered_z;
+			out[9] = v.aux1;
+			out[10] = v.aux2;
 			return 0;
 		}
 		else

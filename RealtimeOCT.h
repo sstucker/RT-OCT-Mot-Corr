@@ -134,6 +134,11 @@ extern "C"
 		return controller->grab_motion_vector(out);
 	}
 
+	__declspec(dllexport) void RTOCT_run_motion_experiment(RealtimeOCTController* controller, int n_stim, int wait_seconds)
+	{
+		controller->run_motion_experiment(n_stim, wait_seconds);
+	}
+
 	/*
 
 	// -- PHASE CORR PLAN -------------------------------------

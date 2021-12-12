@@ -58,6 +58,8 @@ lib.RTOCT_update_motion_parameters.argtypes = [ControllerHandle, c.c_int, c_floa
 lib.RTOCT_grab_motion_vector.restype = c.c_int
 lib.RTOCT_grab_motion_vector.argtypes = [ControllerHandle, c_double_p]
 
+lib.RTOCT_run_motion_experiment.argtypes = [ControllerHandle, c.c_int, c.c_int]
+
 # lib.PCPLAN3D_create.restype = PlanHandle
 #
 # lib.PCPLAN3D_close.argtypes = [PlanHandle]
@@ -189,3 +191,6 @@ class RealtimeOCTController:
 
     def grab_motion_vector(self, out):
         return lib.RTOCT_grab_motion_vector(self._handle, out)
+
+    def run_motion_experiment(self, n_stim, wait_sec):
+        return lib.RTOCT_run_motion_experiment(self._handle, n_stim, wait_sec)

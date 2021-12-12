@@ -38,8 +38,8 @@ AO_DZ = 'Dev1/ao6'
 
 ALINE_SIZE = 2048
 PI = np.pi
-TRIGGER_GAIN = 4
-NUMBER_OF_IMAQ_BUFFERS = 16
+TRIGGER_GAIN = 5
+NUMBER_OF_IMAQ_BUFFERS = 4
 INTPDK = 0.305
 
 ROI_OFFSET = 60
@@ -177,6 +177,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_panel = QtWidgets.QWidget()
         self._control_layout = QtWidgets.QFormLayout()
 
+        self._ref_button = QtWidgets.QPushButton()
+        self._ref_button.setText("Update reference")
+        self._control_layout.addRow(self._ref_button)
+        self._ref_button.pressed.connect(self._controller.update_motion_reference)
+
         self._start_scan_button = QtWidgets.QPushButton()
         self._start_scan_button.setText("Start scan")
         self._control_layout.addRow(self._start_scan_button)
@@ -197,29 +202,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_layout.addRow(self._stop_output_button)
         self._stop_output_button.clicked.connect(self._stop_output)
 
+        self._control_layout.addRow(QtWidgets.QLabel("<h3>Record</h3>"))  # -----------------------------------------
+
+        self._n_stim_spin = QtWidgets.QSpinBox()
+        self._n_stim_spin.setRange(1, 100)
+        self._n_stim_spin.setValue(4)
+        self._control_layout.addRow(QtWidgets.QLabel("Number of stimuli"), self._n_stim_spin)
+
         self._rec_sec_spin = QtWidgets.QSpinBox()
-        self._rec_sec_spin.setRange(1, 60 * 20)
-        self._rec_sec_spin.setValue(60)
-        self._control_layout.addRow(QtWidgets.QLabel("Seconds to record"), self._rec_sec_spin)
+        self._rec_sec_spin.setRange(1, 600)
+        self._rec_sec_spin.setValue(2)
+        self._control_layout.addRow(QtWidgets.QLabel("Seconds per stimuli"), self._rec_sec_spin)
 
         self._fname_edit = QtWidgets.QLineEdit()
-        self._fname_edit.setText("D:\in_vivo_ahead_of_11_10_21\output")
+        self._fname_edit.setText("D:\in_vivo_12_8_21\output")
         self._control_layout.addRow(QtWidgets.QLabel("Recording name"), self._fname_edit)
 
         self._rec_button = QtWidgets.QPushButton()
-        self._rec_button.setText("Start recording")
+        self._rec_button.setText("Run experiment")
         self._control_layout.addRow(self._rec_button)
         self._rec_button.pressed.connect(self._start_recording)
-
-        self._end_rec_button = QtWidgets.QPushButton()
-        self._end_rec_button.setText("End recording")
-        self._control_layout.addRow(self._end_rec_button)
-        self._end_rec_button.pressed.connect(self._stop_recording)
-
-        self._ref_button = QtWidgets.QPushButton()
-        self._ref_button.setText("Update reference")
-        self._control_layout.addRow(self._ref_button)
-        self._ref_button.pressed.connect(self._controller.update_motion_reference)
 
         self._control_layout.addRow(QtWidgets.QLabel("<h3>OCT Scan</h3>"))  # -----------------------------------------
 
@@ -249,12 +251,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_layout.addRow(QtWidgets.QLabel("Exposure %"), self._exposure_percentage_spin)
         self._exposure_percentage_spin.valueChanged.connect(self.set_scan_pattern)
 
-        self._trigger_offset_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self._trigger_offset_slider.setValue(13)
-        self._trigger_offset_slider.setSingleStep(1)
-        self._trigger_offset_slider.valueChanged.connect(self._update_scan_pattern)
-        self._trigger_offset_label = QtWidgets.QLabel("Trigger skew (samples)")
-        self._control_layout.addRow(self._trigger_offset_label, self._trigger_offset_slider)
+        self._line_trigger_offset_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self._line_trigger_offset_slider.setSingleStep(1)
+        self._line_trigger_offset_slider.setRange(-100, 100)
+        self._line_trigger_offset_slider.setValue(13)
+        self._line_trigger_offset_slider.valueChanged.connect(self._update_scan_pattern)
+        self._line_trigger_offset_label = QtWidgets.QLabel("Line trigger skew (samples)")
+        self._control_layout.addRow(self._line_trigger_offset_label, self._line_trigger_offset_slider)
+
+        self._frame_trigger_offset_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self._frame_trigger_offset_slider.setSingleStep(1)
+        self._frame_trigger_offset_slider.setRange(-100, 100)
+        self._frame_trigger_offset_slider.setValue(22)
+        self._frame_trigger_offset_slider.valueChanged.connect(self._update_scan_pattern)
+        self._frame_trigger_offset_label = QtWidgets.QLabel("Frame trigger skew (samples)")
+        self._control_layout.addRow(self._frame_trigger_offset_label, self._frame_trigger_offset_slider)
 
         self._x_offset_spin = QtWidgets.QDoubleSpinBox()
         self._x_offset_spin.setRange(-5, 5)
@@ -305,7 +316,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_layout.addRow(QtWidgets.QLabel("<h3>Motion quantification & correction</h3>"))  # ----------------
 
         self._dac_output_check = QtWidgets.QCheckBox()
-        self._dac_output_check.setChecked(True)
+        self._dac_output_check.setChecked(False)
         self._control_layout.addRow(QtWidgets.QLabel("Enable DAC output"), self._dac_output_check)
         self._dac_output_check.stateChanged.connect(self._update_motion_parameters)
 
@@ -444,7 +455,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._grab_buffer_upsampled = np.empty(ROI_SIZE * UPSAMPLE_FACTOR * NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR * NUMBER_OF_BLINES * UPSAMPLE_FACTOR, dtype=np.complex64)
         self._grab_buffer_upsampled_2d = np.empty(NUMBER_OF_ALINES_PER_B * UPSAMPLE_FACTOR * NUMBER_OF_BLINES * UPSAMPLE_FACTOR, dtype=np.complex64)
 
-        self._mot_buffer = np.zeros(9, dtype=np.float64)
+        self._mot_buffer = np.zeros(11, dtype=np.float64)
 
         self._motion_quant_enabled = False
         self._timer = QTimer()
@@ -453,14 +464,9 @@ class MainWindow(QtWidgets.QMainWindow):
             time.sleep(0.1)
 
     def _start_recording(self):
+        self._sec_to_record = (self._n_stim_spin.value() + 1) * self._rec_sec_spin.value()
+        print('Recording for', self._sec_to_record, 'seconds')
         self._cvstream = CvStream(fps=18)
-        # self._recording_n = int(self._pat.get_pattern_rate() * self._rec_sec_spin.value())
-        # self._recorded_n = 0
-        # print('Allocating recording buffers...')
-        # self._rec_mot = np.empty([4, self._recording_n], dtype=np.float64)
-        # self._rec_img = np.empty([ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES, self._recording_n], dtype=np.complex64)
-        # self._cvstream.capture_n_seconds(self._fname_edit.text() + '_vid', int(self._rec_sec_spin.value()))
-
         self._rec_mot = []
         self._rec_img = []
         self._t_rec_start = time.time()
@@ -468,6 +474,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._recorded_n = 0
         self._cvstream.start(self._fname_edit.text())
         self._is_recording = True
+        self._rec_button.setEnabled(False)
+        self._fname_edit.setEnabled(False)
+        self._rec_sec_spin.setEnabled(False)
+        self._controller.run_motion_experiment(self._n_stim_spin.value(), self._rec_sec_spin.value())
 
     def _stop_recording(self):
         n_recorded = len(self._rec_mot)
@@ -476,7 +486,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._cvstream.stop()
         np.save(self._fname_edit.text() + '_img', np.array(self._rec_img))
         np.save(self._fname_edit.text() + '_mot', np.array(self._rec_mot))
+        plt.plot(np.array(self._rec_mot))
+        plt.show()
         self._is_recording = False
+        self._rec_button.setEnabled(True)
+        self._fname_edit.setEnabled(True)
+        self._rec_sec_spin.setEnabled(True)
 
     def _start_scan(self):
         self._controller.start_scan()
@@ -522,6 +537,9 @@ class MainWindow(QtWidgets.QMainWindow):
                                                       self._r1, self._r2, self._dt, bidirectional=bd)
 
     def _update(self):
+        if self._is_recording:
+            if time.time() - self._t_rec_start > self._sec_to_record:
+                self._stop_recording()
         got = self._controller.grab_frame(self._grab_buffer)
         try:
             if got > -1 and not np.isnan(np.sum(self._grab_buffer)):
@@ -567,18 +585,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Grab motion vector
                     if not self._controller.grab_motion_vector(self._mot_buffer):  # Returns 0 if dequeue is successful
                         if self._is_recording:
-                            self._rec_button.setEnabled(False)
-                            self._fname_edit.setEnabled(False)
-                            self._rec_sec_spin.setEnabled(False)
-                            self._end_rec_button.setEnabled(True)
                             self._rec_img.append(np.copy(self._display_buffer))
                             self._rec_mot.append(np.copy(self._mot_buffer))
                             self._recorded_n += 1
                         else:
-                            self._rec_button.setEnabled(True)
-                            self._fname_edit.setEnabled(True)
-                            self._rec_sec_spin.setEnabled(True)
-                            self._end_rec_button.setEnabled(False)
                             self.mot_x_plot.append_to_plot([self._mot_buffer[0]])
                             self.mot_y_plot.append_to_plot([self._mot_buffer[1]])
                             # self.mot_z_plot.append_to_plot([self._mot_buffer[2]])
@@ -672,16 +682,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pat.generate(alines=NUMBER_OF_ALINES_PER_B, blines=NUMBER_OF_BLINES, fov=[fovwidth, fovwidth],
                            samples_on=1, samples_off=1, exposure_percentage=exp, flyback_duty=fb,
                            rotation_rad=self._angle_spin.value() * (np.pi / 180))
-        self._trigger_offset_slider.setRange(-np.floor_divide(len(self._pat.get_line_trig()), 8),
+        self._line_trigger_offset_slider.setRange(-np.floor_divide(len(self._pat.get_line_trig()), 8),
                                              np.floor_divide(len(self._pat.get_line_trig()), 8))
         print("Generated", type(self._pat), "raster scan rate", self._pat.get_pattern_rate(), 'Hz')
 
     def _update_scan_pattern(self):
-        self._trigger_offset_label.setText('Trigger skew (' + str(self._trigger_offset_slider.value()) + ')')
+        self._line_trigger_offset_label.setText('Line trigger skew (' + str(self._line_trigger_offset_slider.value()) + ')')
+        self._frame_trigger_offset_label.setText('Frame trigger skew (' + str(self._frame_trigger_offset_slider.value()) + ')')
         self._xsig = (self._pat.get_x() + self._x_offset_spin.value()) * 22
         self._ysig = (self._pat.get_y() + self._y_offset_spin.value()) * 22
-        self._ltsig = np.roll(self._pat.get_line_trig() * TRIGGER_GAIN, self._trigger_offset_slider.value())
-        self._ftsig = np.roll(self._pat.get_frame_trig() * TRIGGER_GAIN, self._trigger_offset_slider.value())
+        self._ltsig = np.roll(self._pat.get_line_trig() * TRIGGER_GAIN, self._line_trigger_offset_slider.value())
+        self._ftsig = np.roll(self._pat.get_frame_trig() * TRIGGER_GAIN, self._frame_trigger_offset_slider.value())
         # self._ftsig = np.zeros(len(self._pat.get_frame_trig()))
         # self._ftsig[-2::] = TRIGGER_GAIN
         self._controller.set_scan(self._xsig, self._ysig, self._ltsig, self._ftsig)

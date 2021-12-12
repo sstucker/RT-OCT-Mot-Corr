@@ -600,6 +600,11 @@ public:
 		return motion_worker->grabMotionVector(out);
 	}
 
+	void run_motion_experiment(int n_stim, int wait_seconds)
+	{
+		motion_worker->runExperiment(n_stim, wait_seconds);
+	}
+
 	// ----------------
 
 	void close()
