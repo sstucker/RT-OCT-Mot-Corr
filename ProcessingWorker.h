@@ -125,6 +125,7 @@ protected:
 
 	void main()
 	{
+		printf("Worker launched.\n");
 		while (main_running.load() == true)
 		{
 			this->recv_msg();
@@ -140,8 +141,8 @@ public:
 		id = thread_id;
 
 		msg_queue = new ProcessingQueue(65536);
-		processing_thread = std::thread(&ProcessingWorker::main, this);
 		main_running = ATOMIC_VAR_INIT(true);
+		processing_thread = std::thread(&ProcessingWorker::main, this);
 	}
 
 	// DO NOT access non-atomics from outside main()

@@ -9,7 +9,7 @@
 #include "ProcessingWorker.h"
 #include "FileStreamWorker.h"
 #include "MotionWorker.h"
-#include "NIHardwareInterface.h"
+#include "ni.h"
 #include "Utils.h"
 #include "CircAcqBuffer.h"
 #include <chrono>
@@ -47,6 +47,7 @@ struct ControllerMessage
 	int number_of_buffers;
 	double intpdk;
 	float* window;  // Spectrum apodization window
+	ScanPattern* pattern;
 };
 
 typedef spsc_bounded_queue_t<ControllerMessage> MessageQueue;
@@ -66,7 +67,6 @@ protected:
 	std::atomic_bool scan_ready;
 	std::atomic_bool acquiring;
 
-	NIHardwareInterface hardware_interface;
 	uint16_t* raw_frame_addr;
 
 	MessageQueue* msg_queue;
@@ -151,7 +151,8 @@ protected:
 
 		fftwf_import_wisdom_from_filename("C:/Users/OCT/Dev/RealtimeOCT/octcontroller_fftw_wisdom.txt");
 
-		fftw_plan = fftwf_plan_many_dft_r2c(1, n, alines_per_worker, dummy_in, inembed, istride, idist, dummy_out, onembed, ostride, odist, FFTW_EXHAUSTIVE);
+		fftwf_set_timelimit(10.0);  // Seconds
+		fftw_plan = fftwf_plan_many_dft_r2c(1, n, alines_per_worker, dummy_in, inembed, istride, idist, dummy_out, onembed, ostride, odist, FFTW_ESTIMATE);
 
 		fftwf_export_wisdom_to_filename("C:/Users/OCT/Dev/RealtimeOCT/octcontroller_fftw_wisdom.txt");
 
@@ -183,8 +184,9 @@ protected:
 				{
 					scan_ready.store(false);
 
-					hardware_interface.set_scan_pattern(msg.scan_x, msg.scan_y, msg.scan_line_trig, msg.scan_frame_trig, msg.scan_n);
-
+					printf("Setting scan signals\n");
+					ni::set_scan_pattern(msg.pattern);
+					delete msg.pattern;
 					scan_ready.store(true);
 				}
 				else
@@ -199,6 +201,7 @@ protected:
 				{
 					processing_ready.store(false);
 
+					printf("Updating processing parameters\n");
 					interpdk_plan = WavenumberInterpolationPlan(aline_size, msg.intpdk);
 					spectral_window = new float[aline_size];
 					memcpy(spectral_window, msg.window, aline_size * sizeof(float));
@@ -230,7 +233,7 @@ protected:
 					printf("Line camera trigger: %s\n", hw_ao_lt);
 					printf("Frame grab trigger: %s\n", hw_ao_ft);
 
-					if (!hardware_interface.open(hw_cam_name, hw_ao_x, hw_ao_y, hw_ao_lt, hw_ao_ft, msg.hw_dac_fs, aline_size, total_number_of_alines, msg.number_of_buffers))
+					if (ni::daq_open(hw_ao_x, hw_ao_y, hw_ao_lt) == 0 && ni::imaq_open(hw_cam_name) == 0)
 					{
 						// Determine number of workers based on A-lines per frame
 						if (total_number_of_alines > 4096)
@@ -239,7 +242,7 @@ protected:
 						}
 						else
 						{
-							n_process_workers = std::thread::hardware_concurrency() / 2;
+							n_process_workers = std::thread::hardware_concurrency();
 						}
 
 						while ((total_number_of_alines % n_process_workers != 0) && (n_process_workers > 1))
@@ -286,7 +289,7 @@ protected:
 
 					launch_workers();
 
-					if (!hardware_interface.start_scan())
+					if (ni::start_scan() == 0)
 					{
 						printf("Hardware started scanning successfully.\n");
 						acquiring.store(true);
@@ -305,7 +308,7 @@ protected:
 			{
 				if (acquiring.load())
 				{
-					if (!hardware_interface.stop_scan())
+					if (ni::stop_scan() == 0)
 					{
 						terminate_workers();
 						acquiring.store(false);
@@ -323,6 +326,8 @@ protected:
 	void main()  // oct_controller_thread
 	{
 
+		printf("Main running.\n");
+
 		int cumulative_frame_number = 0;
 		int acquired_buffer_number = 0;
 
@@ -335,7 +340,7 @@ protected:
 
 			if (acquiring.load())
 			{
-				acquired_buffer_number = hardware_interface.examine_imaq_buffer(&raw_frame_addr, cumulative_frame_number);
+				acquired_buffer_number = ni::examine_buffer(&raw_frame_addr, cumulative_frame_number);
 
 				if ((raw_frame_addr != NULL) && (acquired_buffer_number > -1))
 				{
@@ -385,11 +390,16 @@ protected:
 					cumulative_frame_number += 1;
 
 				}
-				hardware_interface.release_imaq_buffer();
+				else
+				{
+					ni::print_error_msg();
+				}
+				ni::release_buffer();
 			}
 		}
 
-		hardware_interface.close();
+		ni::daq_close();
+		ni::imaq_close();
 
 		delete output_buffer;
 		delete[] stamp_buffer;
@@ -448,11 +458,10 @@ public:
 
 			msg_queue = new MessageQueue(65536);
 
+			main_running.store(true);
 			oct_controller_thread = std::thread(&RealtimeOCTController::main, this);
 			file_stream_worker = new FileStreamWorker(0);  // If no argument is passed, thread does not start
 			motion_worker = new MotionWorker(0);
-
-			main_running.store(true);
 		}
 	}
 
@@ -477,19 +486,17 @@ public:
 		ControllerMessage msg;
 		msg.flag = UpdateProcessing;
 		msg.intpdk = intpdk;
-		msg.window = window;
+		msg.window = new float[2048];
+		memcpy(msg.window, window, 2048 * sizeof(float));
 		msg_queue->enqueue(msg);
 	}
 
-	void set_scan_signals(double* x, double* y, double* linetrigger, double* frametrigger, int n)
+	// lib.RTOCT_setScan(self._handle, x, y, lt, len(x), sample_rate, points_in_scan, points_in_image, bool_mask)
+	void set_scan_signals(double* x, double* y, double* linetrigger, int n, int sample_rate, int points_in_scan, int points_in_image, bool* bool_mask)
 	{
 		ControllerMessage msg;
+		msg.pattern = new ScanPattern(x, y, linetrigger, n, sample_rate, points_in_scan, points_in_image, bool_mask);
 		msg.flag = UpdateScan;
-		msg.scan_x = x;
-		msg.scan_y = y;
-		msg.scan_line_trig = linetrigger;
-		msg.scan_frame_trig = frametrigger;
-		msg.scan_n = n;
 		msg_queue->enqueue(msg);
 	}
 
@@ -535,13 +542,13 @@ public:
 		}
 	}
 
-	void start_save(const char* fname, int max_bytes)
+	void start_save(const char* fname, long long max_bytes)
 	{
 		// while (!acquiring.load())
 		file_stream_worker->start_streaming(fname, max_bytes, FSTREAM_TYPE_NPY, output_buffer, roi_size, total_number_of_alines, roi_size);
 	}
 
-	void save_n(const char* fname, int max_bytes, int n_to_save)
+	void save_n(const char* fname, long long max_bytes, int n_to_save)
 	{
 		if (acquiring.load())
 		{

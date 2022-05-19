@@ -23,7 +23,7 @@
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{92821f70-9205-47f3-8a10-e6c7a1f42f29}</ProjectGuid>
     <RootNamespace>RealtimeOCT</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -42,13 +42,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -162,6 +162,7 @@
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>C:\Users\OCT\lib\TinyTIFF\build\src;C:\Users\OCT\lib\TinyTIFF\src;C:\Users\OCT\lib\opencv\opencv\sources\3rdparty\include;C:\Users\OCT\lib\opencv\opencv\build\include;C:\Users\OCT\lib\fftw;C:\Program Files %28x86%29\National Instruments\Shared\ExternalCompilerSupport\C\include;C:\Users\OCT\lib\eigen-3.3.8;C:\Users\OCT\lib\cv-plot-1.2.1\CvPlot\inc</AdditionalIncludeDirectories>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -175,10 +176,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Barrier.h" />
     <ClInclude Include="CircAcqBuffer.h" />
     <ClInclude Include="MotionWorker.h" />
+    <ClInclude Include="ni.h" />
+    <ClInclude Include="NIDAQInterface.h" />
+    <ClInclude Include="NIIMAQInterface.h" />
     <ClInclude Include="PhaseCorrelationPlan3D.h" />
+    <ClInclude Include="PhaseCorrelationPlanMIP3.h" />
     <ClInclude Include="SimpleKalmanFilter.h" />
     <ClInclude Include="SpscBoundedQueue.h" />
     <ClInclude Include="NIHardwareInterface.h" />
@@ -191,6 +195,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="NIDAQInterface.cpp" />
+    <ClCompile Include="NIIMAQInterface.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

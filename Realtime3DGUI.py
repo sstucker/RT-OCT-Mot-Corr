@@ -2,8 +2,7 @@ import ctypes as c
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from RealtimeFlowOCT.PyScanPattern.Patterns import Figure8ScanPattern, RasterScanPattern, RoseScanPattern, \
-    BidirectionalRasterScanPattern
+from pyscanpatterns.scanpatterns import RasterScanPattern
 
 from RealtimeOCT import RealtimeOCTController
 
@@ -24,7 +23,9 @@ import os
 import multiprocessing as mp
 from queue import Empty, Full
 
-from CvStream import CvStream
+# from CvStream import CvStream
+
+V_TO_MM = 14.06  # Calibrated 1/27/2022
 
 CAM = 'img1'
 AO_X = 'Dev1/ao1'
@@ -206,16 +207,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._n_stim_spin = QtWidgets.QSpinBox()
         self._n_stim_spin.setRange(1, 100)
-        self._n_stim_spin.setValue(4)
+        self._n_stim_spin.setValue(5)
         self._control_layout.addRow(QtWidgets.QLabel("Number of stimuli"), self._n_stim_spin)
 
         self._rec_sec_spin = QtWidgets.QSpinBox()
         self._rec_sec_spin.setRange(1, 600)
-        self._rec_sec_spin.setValue(2)
+        self._rec_sec_spin.setValue(15)
         self._control_layout.addRow(QtWidgets.QLabel("Seconds per stimuli"), self._rec_sec_spin)
 
         self._fname_edit = QtWidgets.QLineEdit()
-        self._fname_edit.setText("D:\in_vivo_12_8_21\output")
+        self._fname_edit.setText("D:/phantom_phase_corr_1_27_22/output")
+        self._fname_edit.setMinimumWidth(200)
         self._control_layout.addRow(QtWidgets.QLabel("Recording name"), self._fname_edit)
 
         self._rec_button = QtWidgets.QPushButton()
@@ -226,7 +228,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._control_layout.addRow(QtWidgets.QLabel("<h3>OCT Scan</h3>"))  # -----------------------------------------
 
         self._adist_spin = QtWidgets.QDoubleSpinBox()
-        self._adist_spin.setDecimals(4)
+        self._adist_spin.setDecimals(6)
         self._adist_spin.setRange(0.00001, 0.1)
         self._adist_spin.setValue(0.001)
         self._adist_spin.setSingleStep(0.0001)
@@ -239,7 +241,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._flyback_duty_spin = QtWidgets.QDoubleSpinBox()
         self._flyback_duty_spin.setRange(0.01, 0.99)
-        self._flyback_duty_spin.setValue(0.1)
+        self._flyback_duty_spin.setValue(0.2)
         self._flyback_duty_spin.setSingleStep(0.01)
         self._control_layout.addRow(QtWidgets.QLabel("Flyback duty"), self._flyback_duty_spin)
         self._flyback_duty_spin.valueChanged.connect(self.set_scan_pattern)
@@ -262,7 +264,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._frame_trigger_offset_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self._frame_trigger_offset_slider.setSingleStep(1)
         self._frame_trigger_offset_slider.setRange(-100, 100)
-        self._frame_trigger_offset_slider.setValue(22)
+        self._frame_trigger_offset_slider.setValue(0)
         self._frame_trigger_offset_slider.valueChanged.connect(self._update_scan_pattern)
         self._frame_trigger_offset_label = QtWidgets.QLabel("Frame trigger skew (samples)")
         self._control_layout.addRow(self._frame_trigger_offset_label, self._frame_trigger_offset_slider)
@@ -285,7 +287,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._angle_spin = QtWidgets.QDoubleSpinBox()
         self._angle_spin.setRange(-360, 360)
-        self._angle_spin.setValue(8)
+        self._angle_spin.setValue(0)
         self._angle_spin.setDecimals(1)
         self._angle_spin.setSingleStep(1)
         self._control_layout.addRow(QtWidgets.QLabel("Rotation"), self._angle_spin)
@@ -334,7 +336,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._x_factor_spin = QtWidgets.QDoubleSpinBox()
         self._x_factor_spin.setRange(-1000, 1000)
-        self._x_factor_spin.setValue(-96)
+        self._x_factor_spin.setValue(-80)
         self._x_factor_spin.setDecimals(2)
         self._x_factor_spin.setSingleStep(0.1)
         self._control_layout.addRow(QtWidgets.QLabel("X feedback scale factor"), self._x_factor_spin)
@@ -429,7 +431,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._window = np.hanning(2048).astype(np.float32)  # A-line window
 
-        self._controller.configure(self._pat.get_sample_rate(), ALINE_SIZE, NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES,
+        self._controller.configure(self._pat.sample_rate, ALINE_SIZE, NUMBER_OF_ALINES_PER_B * NUMBER_OF_BLINES,
                                    NUMBER_OF_IMAQ_BUFFERS, roi_offset=ROI_OFFSET, roi_size=ROI_SIZE)
         time.sleep(ASYNC_WAIT_DEBUG)
 
@@ -439,7 +441,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_scan_pattern()
         time.sleep(ASYNC_WAIT_DEBUG)
 
-        self._cvstream = None
+        # self._cvstream = None
         self._rec_mot = []
         self._rec_img = []
 
@@ -464,15 +466,15 @@ class MainWindow(QtWidgets.QMainWindow):
             time.sleep(0.1)
 
     def _start_recording(self):
-        self._sec_to_record = (self._n_stim_spin.value() + 1) * self._rec_sec_spin.value()
+        self._sec_to_record = (self._n_stim_spin.value() + 1) * self._rec_sec_spin.value() + 3
         print('Recording for', self._sec_to_record, 'seconds')
-        self._cvstream = CvStream(fps=18)
+        # self._cvstream = CvStream(fps=18)
         self._rec_mot = []
         self._rec_img = []
         self._t_rec_start = time.time()
         self._recording_n = -1
         self._recorded_n = 0
-        self._cvstream.start(self._fname_edit.text())
+        # self._cvstream.start(self._fname_edit.text())
         self._is_recording = True
         self._rec_button.setEnabled(False)
         self._fname_edit.setEnabled(False)
@@ -483,10 +485,13 @@ class MainWindow(QtWidgets.QMainWindow):
         n_recorded = len(self._rec_mot)
         elapsed = time.time() - self._t_rec_start
         print('Recorded', n_recorded, 'frames in', str(elapsed)[0:6], 's at', str(n_recorded / elapsed)[0:6], 'hz')
-        self._cvstream.stop()
+        # self._cvstream.stop()
         np.save(self._fname_edit.text() + '_img', np.array(self._rec_img))
         np.save(self._fname_edit.text() + '_mot', np.array(self._rec_mot))
-        plt.plot(np.array(self._rec_mot))
+        plt.plot(np.array(self._rec_mot)[:, 10], '-k')
+        plt.plot(np.array(self._rec_mot)[:, 9], '-g')
+        plt.plot(np.array(self._rec_mot)[:, 6], '--r')
+        plt.plot(np.array(self._rec_mot)[:, 7], '--b')
         plt.show()
         self._is_recording = False
         self._rec_button.setEnabled(True)
@@ -507,10 +512,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._motion_quant_enabled = False
 
     def _start_output(self):
-        if isinstance(self._pat, BidirectionalRasterScanPattern):
-            bd = True
-        else:
-            bd = False
         self._get_kf_params()
         self._generate_windows()
         self._get_scale_factors()
@@ -518,15 +519,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._controller.start_motion_quant(
             np.array([NUMBER_OF_ALINES_PER_B, NUMBER_OF_ALINES_PER_B, NUMBER_OF_ALINES_PER_B]).astype(int),
             UPSAMPLE_FACTOR, self._npeak_spin.value(), self._spectral_window3d, self._spatial_window3d,
-            self._e, self._f,  self._g, self._q, self._r1, self._r2, self._dt, N_LAG, bidirectional=bd)
+            self._e, self._f,  self._g, self._q, self._r1, self._r2, self._dt, N_LAG)
         self._motion_quant_enabled = True
 
     def _update_motion_parameters(self):
         if self._motion_quant_enabled:
-            if isinstance(self._pat, BidirectionalRasterScanPattern):
-                bd = True
-            else:
-                bd = False
             self._generate_windows()
             self._get_kf_params()
             self._get_scale_factors()
@@ -534,7 +531,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                                      self._dac_output_check.isChecked())
             self._controller.update_motion_parameters(int(self._npeak_spin.value()), self._spectral_window3d,
                                                       self._spatial_window3d, self._e, self._f, self._g, self._q,
-                                                      self._r1, self._r2, self._dt, bidirectional=bd)
+                                                      self._r1, self._r2, self._dt)
 
     def _update(self):
         if self._is_recording:
@@ -543,11 +540,7 @@ class MainWindow(QtWidgets.QMainWindow):
         got = self._controller.grab_frame(self._grab_buffer)
         try:
             if got > -1 and not np.isnan(np.sum(self._grab_buffer)):
-                if isinstance(self._pat, BidirectionalRasterScanPattern):
-                    self._display_buffer = np.abs(reshape_bidirectional_frame(self._grab_buffer, ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES))
-                else:
-                    self._display_buffer = np.abs(reshape_unidirectional_frame(self._grab_buffer, ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES))
-
+                self._display_buffer = np.abs(reshape_unidirectional_frame(self._grab_buffer, ROI_SIZE, NUMBER_OF_ALINES_PER_B, NUMBER_OF_BLINES))
                 if self._motion_quant_enabled:
 
                     # -- MIP3 --------------------------------------------------------------------------
@@ -600,6 +593,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         # self.mot_z_output_plot.append_to_plot([self._mot_buffer[8]])
 
                 if not self._is_recording:  # Only draw view if not recording
+                    # self._display_buffer = np.roll(self._display_buffer, -2, axis=1)
                     if self._xsection_radio.isChecked():
                         if self._mip_check.isChecked():
                             self._display_buffer = np.max(self._display_buffer, axis=1)
@@ -610,7 +604,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             self._display_buffer = np.max(self._display_buffer, axis=2)
                         else:
                             self._display_buffer = self._display_buffer[:, :, np.floor_divide(self._slice_slider.value(), UPSAMPLE_FACTOR)]
-                    else:
+                    else:  # Axial
                         if self._mip_check.isChecked():
                             self._display_buffer = np.max(self._display_buffer, axis=0)
                         else:
@@ -674,28 +668,29 @@ class MainWindow(QtWidgets.QMainWindow):
         fovwidth = (NUMBER_OF_ALINES_PER_B - 1) * self._adist_spin.value()
         exp = self._exposure_percentage_spin.value()
         fb = self._flyback_duty_spin.value()
-        if self._bidirectional_check.isChecked():
-            self._pat = BidirectionalRasterScanPattern()
-        else:
-            self._pat = RasterScanPattern()
+        self._pat = RasterScanPattern()
 
-        self._pat.generate(alines=NUMBER_OF_ALINES_PER_B, blines=NUMBER_OF_BLINES, fov=[fovwidth, fovwidth],
-                           samples_on=1, samples_off=1, exposure_percentage=exp, flyback_duty=fb,
-                           rotation_rad=self._angle_spin.value() * (np.pi / 180))
-        self._line_trigger_offset_slider.setRange(-np.floor_divide(len(self._pat.get_line_trig()), 8),
-                                             np.floor_divide(len(self._pat.get_line_trig()), 8))
-        print("Generated", type(self._pat), "raster scan rate", self._pat.get_pattern_rate(), 'Hz')
+        self._pat.generate(alines=NUMBER_OF_ALINES_PER_B, blines=NUMBER_OF_BLINES, max_trigger_rate=75900,
+                           fov=[fovwidth, fovwidth], samples_on=1, samples_off=2, exposure_fraction=exp, flyback_duty=fb,
+                           rotation_rad=self._angle_spin.value() * (np.pi / 180), bidirectional=False)
+        self._line_trigger_offset_slider.setRange(-np.floor_divide(len(self._pat.line_trigger), 8),
+                                             np.floor_divide(len(self._pat.line_trigger), 8))
+        print("Generated", type(self._pat), "raster scan rate", self._pat.pattern_rate, 'Hz')
 
     def _update_scan_pattern(self):
-        self._line_trigger_offset_label.setText('Line trigger skew (' + str(self._line_trigger_offset_slider.value()) + ')')
-        self._frame_trigger_offset_label.setText('Frame trigger skew (' + str(self._frame_trigger_offset_slider.value()) + ')')
-        self._xsig = (self._pat.get_x() + self._x_offset_spin.value()) * 22
-        self._ysig = (self._pat.get_y() + self._y_offset_spin.value()) * 22
-        self._ltsig = np.roll(self._pat.get_line_trig() * TRIGGER_GAIN, self._line_trigger_offset_slider.value())
-        self._ftsig = np.roll(self._pat.get_frame_trig() * TRIGGER_GAIN, self._frame_trigger_offset_slider.value())
-        # self._ftsig = np.zeros(len(self._pat.get_frame_trig()))
-        # self._ftsig[-2::] = TRIGGER_GAIN
-        self._controller.set_scan(self._xsig, self._ysig, self._ltsig, self._ftsig)
+        self._xsig = (self._pat.x + self._x_offset_spin.value()) * V_TO_MM
+        self._ysig = (self._pat.y + self._y_offset_spin.value()) * V_TO_MM
+        self._ltsig = self._pat.line_trigger * TRIGGER_GAIN
+
+        # plt.subplot(1,2,1)
+        # plt.plot(self._xsig)
+        # plt.plot(self._ysig)
+        # plt.plot(self._ltsig)
+        # plt.subplot(1,2,2)
+        # plt.plot(self._pat.image_mask)
+        # plt.show()
+
+        self._controller.set_scan(self._xsig, self._ysig, self._ltsig, self._pat.sample_rate, self._pat.points_in_scan, self._pat.points_in_image, self._pat.image_mask)
 
     def set_scan_pattern(self):
         self._define_scan_pattern()

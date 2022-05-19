@@ -41,9 +41,10 @@ extern "C"
 		controller->set_oct_processing(intpdk, apodization_window);
 	}
 
-	__declspec(dllexport) void RTOCT_setScan(RealtimeOCTController* controller, double* x, double* y, double* linetrigger, double* frametrigger, int n)
+	// lib.RTOCT_setScan(self._handle, x, y, lt, len(x), sample_rate, points_in_scan, points_in_image, bool_mask)
+	__declspec(dllexport) void RTOCT_setScan(RealtimeOCTController* controller, double* x, double* y, double* linetrigger, int n, int sample_rate, int points_in_scan, int points_in_image, bool* bool_mask)
 	{
-		controller->set_scan_signals(x, y, linetrigger, frametrigger, n);
+		controller->set_scan_signals(x, y, linetrigger, n, sample_rate, points_in_scan, points_in_image, bool_mask);
 	}
 
 	__declspec(dllexport) void RTOCT_startScan(RealtimeOCTController* controller)
@@ -56,12 +57,12 @@ extern "C"
 		controller->stop_scan();
 	}
 
-	__declspec(dllexport) void RTOCT_startSave(RealtimeOCTController* controller, const char* fname, int max_bytes)
+	__declspec(dllexport) void RTOCT_startSave(RealtimeOCTController* controller, const char* fname, long long max_bytes)
 	{
 		controller->start_save(fname, max_bytes);
 	}
 
-	_declspec(dllexport) void RTOCT_saveN(RealtimeOCTController* controller, const char* fname, int max_bytes, int n_to_save)
+	_declspec(dllexport) void RTOCT_saveN(RealtimeOCTController* controller, const char* fname, long long max_bytes, int n_to_save)
 	{
 		controller->save_n(fname, max_bytes, n_to_save);
 	}

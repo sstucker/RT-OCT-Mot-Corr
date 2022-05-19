@@ -121,6 +121,9 @@ protected:
 	bool experiment_start;
 	int exp_n_stim; // Number of stimuli left to acquire
 	int exp_wait_sec;  // Seconds to wait before or after each stimuli
+	std::chrono::steady_clock::time_point exp_t_last_stim;
+	std::chrono::steady_clock::time_point exp_t_start;
+
 
 	int initializeCAFilters(double* d, double* f, double* g, double* q, double* r1, double* r2, double dt)
 	{
@@ -198,15 +201,6 @@ protected:
 		err = DAQmxCreateAOVoltageChan(motion_output_task, z_out_ch, "z", -10, 10, DAQmx_Val_Volts, NULL);
 		err = DAQmxCreateAOVoltageChan(motion_output_task, aux1_ch, "aux1", -10, 10, DAQmx_Val_Volts, NULL);
 		err = DAQmxCreateAOVoltageChan(motion_output_task, aux2_ch, "aux2", -10, 10, DAQmx_Val_Volts, NULL);
-
-		// err = DAQmxCfgSampClkTiming(motion_output_task, NULL, 200, DAQmx_Val_Rising, DAQmx_Val_OnDemand, 1);
-		// err = DAQmxCfgOutputBuffer(motion_output_task, 0);
-
-		// err = DAQmxSetWriteRegenMode(motion_output_task, DAQmx_Val_DoNotAllowRegen);
-		// err = DAQmxSetSampTimingType(motion_output_task, DAQmx_Val_OnDemand);
-		// err = DAQmxSetSampTimingType(motion_output_task, DAQmx_Val_HWTimedSinglePoint);
-
-		// err = DAQmxStartTask(motion_output_task);
 
 		if (err != 0)
 		{
@@ -293,6 +287,7 @@ protected:
 					printf("Running experiment with %i stims\n", exp_n_stim);
 					experiment_running = true;
 					experiment_start = true;
+					exp_t_start = std::chrono::steady_clock::now();
 				}
 			}
 			if (msg.flag & Stop)
@@ -317,8 +312,6 @@ protected:
 
 		exp_n_stim = 0;
 		exp_wait_sec = 0;
-		std::chrono::steady_clock::time_point exp_t_last_stim;
-		std::chrono::steady_clock::time_point exp_t_start;
 
 		experiment_running = false;
 		experiment_start = false;
@@ -398,11 +391,15 @@ protected:
 					{
 						if (experiment_start)
 						{
-							daq_xyz_out[3] = 5.0;  // Start trigger
-							experiment_start = false;
-							exp_t_last_stim = std::chrono::steady_clock::now();
-							exp_t_start = std::chrono::steady_clock::now();
-							printf("Started experiment\n");
+							std::chrono::steady_clock::duration duration = std::chrono::steady_clock::now() - exp_t_start;
+							float elapsed = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+							if (elapsed >= 2)  // Wait 2 seconds before triggering the 2P to allow OCT recording to initialize. TODO parameterize
+							{
+								daq_xyz_out[3] = 5.0;  // Start trigger
+								experiment_start = false;
+								exp_t_last_stim = std::chrono::steady_clock::now();
+								printf("Started experiment\n");
+							}
 						}
 						else
 						{

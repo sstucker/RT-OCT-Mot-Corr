@@ -5,6 +5,61 @@
 #include "niimaq.h"
 #include "NIDAQmx.h"
 
+
+class ScanPattern
+{
+
+public:
+
+	double* x;
+	double* y;
+	double* line_trigger;
+	int n;
+	int sample_rate;
+	int line_rate;
+	int points_in_scan;
+	int points_in_image;
+	bool* image_mask;
+
+	ScanPattern(double* x,
+				double* y,
+				double* line_trigger,
+				int n,
+				int sample_rate,
+				int points_in_scan,
+				int points_in_image,
+				bool* image_mask
+	)
+	{
+		this->x = new double[n];
+		memcpy(this->x, x, sizeof(double) * n);
+
+		this->y = new double[n];
+		memcpy(this->y, y, sizeof(double) * n);
+
+		this->line_trigger = new double[n];
+		memcpy(this->line_trigger, line_trigger, sizeof(double) * n);
+
+		this->image_mask = new bool[points_in_scan];
+		memcpy(this->image_mask, image_mask, sizeof(bool) * points_in_scan);
+
+		this->n = n;
+		this->sample_rate = sample_rate;
+		this->points_in_scan = points_in_scan;
+		this->points_in_image = points_in_image;
+	}
+
+	~ScanPattern()
+	{
+		delete[] this->x;
+		delete[] this->y;
+		delete[] this->line_trigger;
+		delete[] this->image_mask;
+	}
+
+};
+
+
 class NIHardwareInterface
 {
 

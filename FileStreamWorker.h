@@ -36,7 +36,7 @@ struct FileStreamMessage
 {
 	FileStreamMessageFlag flag;
 	const char* fname;
-	int fsize;
+	long long fsize;
 	FileStreamType ftype;
 	CircAcqBuffer<fftwf_complex>* circacqbuffer;
 	int aline_size;  // Number of voxels in each A-line (ROI size)
@@ -109,7 +109,7 @@ protected:
 
 	int aline_size;
 	int number_of_alines;
-	int file_max_bytes;
+	long long file_max_bytes;
 	int n_to_stream;
 
 	inline void recv_msg()
@@ -133,9 +133,13 @@ protected:
 					aline_size = msg.aline_size;
 					number_of_alines = msg.number_of_alines;
 					file_max_bytes = msg.fsize;
+					printf("FileStreamWorker: maximum file size %u bytes\n", file_max_bytes);
+					printf("FileStreamWorker: maximum file size %u GB\n", file_max_bytes / (long long)1073741824.0);
 
 					file_name_inc = 0;
-					frames_per_file = file_max_bytes / (aline_size * number_of_alines * (int)sizeof(fftwf_complex));
+					frames_per_file = file_max_bytes / ((long long)aline_size * (long long)number_of_alines * (long long)sizeof(fftwf_complex));
+					printf("FileStreamWorker: frame size %u GB\n", ((long long)aline_size * (long long)number_of_alines * (long long)sizeof(fftwf_complex)) / (long long)1073741824.0);
+					printf("FileStreamWorker: Saving %i frames per file\n", (int)frames_per_file);
 
 					latest_frame_n = acq_buffer->get_count();
 
@@ -143,7 +147,7 @@ protected:
 			}
 			if (msg.flag & StreamN)
 			{
-				// printf("Numbered save: streaming %i frames to file %s.\n", msg.n_to_stream, file_name);
+				printf("Numbered save: streaming %i frames to file %s.\n", msg.n_to_stream, file_name);
 				n_to_stream = msg.n_to_stream;
 			}
 			if (msg.flag & StopStream)
@@ -279,7 +283,7 @@ public:
 		return streaming.load();
 	}
 
-	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines)
+	void start_streaming(const char* fname, long long max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines)
 	{
 		FileStreamMessage msg;
 		msg.flag = StartStream;
@@ -291,7 +295,7 @@ public:
 		msg_queue->enqueue(msg);
 	}
 
-	void start_streaming(const char* fname, int max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines, int n_to_stream)
+	void start_streaming(const char* fname, long long max_bytes, FileStreamType ftype, CircAcqBuffer<fftwf_complex>* buffer, int aline_size, int number_of_alines, int n_to_stream)
 	{
 		FileStreamMessage msg;
 		msg.flag = StartStream | StreamN;

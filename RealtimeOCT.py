@@ -3,7 +3,7 @@ import pathlib
 import numpy as np
 from numpy.ctypeslib import ndpointer
 import matplotlib.pyplot as plt
-import cv2
+# import cv2
 import os
 import time
 
@@ -34,11 +34,11 @@ lib.RTOCT_is_ready_to_scan.restype = c.c_bool
 
 lib.RTOCT_configure.argtypes = (ControllerHandle, c.c_int, c.c_int, c.c_int, c.c_int, c.c_int, c.c_int)
 lib.RTOCT_setProcessing.argtypes = (ControllerHandle, c.c_double, c_float_p)
-lib.RTOCT_setScan.argtypes = (ControllerHandle, c_double_p, c_double_p, c_double_p, c_double_p, c.c_int)
+lib.RTOCT_setScan.argtypes = (ControllerHandle, c_double_p, c_double_p, c_double_p, c.c_int, c.c_int, c.c_int, c.c_int, c_bool_p)
 lib.RTOCT_startScan.argtypes = [ControllerHandle]
 lib.RTOCT_stopScan.argtypes = [ControllerHandle]
-lib.RTOCT_startSave.argtypes = (ControllerHandle, c.c_char_p, c.c_int)
-lib.RTOCT_saveN.argtypes = (ControllerHandle, c.c_char_p, c.c_int, c.c_int)
+lib.RTOCT_startSave.argtypes = (ControllerHandle, c.c_char_p, c.c_longlong)
+lib.RTOCT_saveN.argtypes = (ControllerHandle, c.c_char_p, c.c_longlong, c.c_int)
 lib.RTOCT_stopSave.argtypes = [ControllerHandle]
 lib.RTOCT_grabFrame.argtypes = [ControllerHandle, c_complex64_p]
 lib.RTOCT_grabFrame.restype = c.c_int
@@ -123,15 +123,18 @@ class RealtimeOCTController:
         """
         lib.RTOCT_setProcessing(self._handle, np.double(intpdk), apod_window)
 
-    def set_scan(self, x, y, lt, ft):
+    def set_scan(self, x, y, lt, sample_rate, points_in_scan, points_in_image, bool_mask):
         """
         Sets the signals used to drive the galvos and trigger camera and frame grabber. Can be called during a scan.
         x -- numpy array. X galvo drive signal
         y -- numpy array. Y galvo drive signal
         lt -- numpy array. Camera A-line exposure trigger signal
-        ft -- numpy array. Frame grabber trigger signal
+        sample_rate -- int. DAC output rate.
+        points_in_scan -- int. A-lines in the scan pattern.
+        points_in_image -- int. A-lines in the cropped image.
+        points_in_image -- numpy array. Boolean mask mapping A-lines to the image.
         """
-        lib.RTOCT_setScan(self._handle, x, y, lt, ft, len(x))
+        lib.RTOCT_setScan(self._handle, x, y, lt, len(x), sample_rate, points_in_scan, points_in_image, np.array(bool_mask).astype(bool))
 
     def start_scan(self):
         lib.RTOCT_startScan(self._handle)
@@ -145,7 +148,7 @@ class RealtimeOCTController:
         file_name -- string. Desired name of output file
         max_bytes -- int. Maximum size each file can be before a new one is created
         """
-        lib.RTOCT_startSave(self._handle, file_name.split('.')[0].encode('utf-8'), int(max_bytes))
+        lib.RTOCT_startSave(self._handle, file_name.split('.')[0].encode('utf-8'), np.longlong(max_bytes))
 
     def save_n(self, file_name, max_bytes, frames_to_save):
         """
@@ -154,7 +157,7 @@ class RealtimeOCTController:
         max_bytes -- int. Maximum size each file can be before a new one is created
         frames_to_save -- int. Number of frames to save
         """
-        lib.RTOCT_saveN(self._handle, file_name.split('.')[0].encode('utf-8'), int(max_bytes), int(frames_to_save))
+        lib.RTOCT_saveN(self._handle, file_name.split('.')[0].encode('utf-8'), np.longlong(max_bytes), int(frames_to_save))
 
     def stop_save(self):
         lib.RTOCT_stopSave(self._handle)
